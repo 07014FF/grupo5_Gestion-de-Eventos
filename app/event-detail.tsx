@@ -1,10 +1,9 @@
 import { Badge, Button } from '@/components/ui';
-import { BorderRadius, Colors, FontSizes, Shadows, Spacing } from '@/constants/theme';
+import { BorderRadius, Colors, FontSizes, Spacing } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import {
-  Alert,
   Dimensions,
   Image,
   SafeAreaView,
@@ -14,7 +13,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 
 // Opciones de la pantalla
@@ -262,28 +261,63 @@ export default function EventDetailScreen() {
             {/* Ticket Type Selection */}
             <View style={styles.ticketTypeContainer}>
               <Text style={styles.ticketTypeTitle}>Selecciona tu entrada:</Text>
-              <View style={styles.ticketTypeGrid}>
-                {EVENT_DETAIL.ticketTypes.map((ticketType) => (
-                  <TouchableOpacity
-                    key={ticketType.id}
-                    style={[
-                      styles.ticketTypeButton,
-                      selectedTicketType.id === ticketType.id && styles.ticketTypeButtonSelected
-                    ]}
-                    onPress={() => {
-                      setSelectedTicketType(ticketType);
-                      setQuantity(1);
-                    }}
-                  >
-                    <View style={styles.ticketTypeContent}>
-                      <Text style={styles.ticketTypeName}>{ticketType.name}</Text>
-                      <Text style={styles.ticketTypePrice}>{ticketType.price}</Text>
+              {EVENT_DETAIL.ticketTypes.map((ticketType) => (
+                <TouchableOpacity
+                  key={ticketType.id}
+                  style={[
+                    styles.ticketTypeCard,
+                    selectedTicketType.id === ticketType.id && styles.ticketTypeCardActive
+                  ]}
+                  onPress={() => {
+                    setSelectedTicketType(ticketType);
+                    setQuantity(1); // Reset quantity when changing ticket type
+                  }}
+                >
+                  <View style={styles.ticketTypeHeader}>
+                    <View style={styles.ticketTypeInfo}>
+                      <Text style={[
+                        styles.ticketTypeName,
+                        selectedTicketType.id === ticketType.id && styles.ticketTypeNameActive
+                      ]}>
+                        {ticketType.name}
+                      </Text>
+                      <Text style={[
+                        styles.ticketTypeDescription,
+                        selectedTicketType.id === ticketType.id && styles.ticketTypeDescriptionActive
+                      ]}>
+                        {ticketType.description}
+                      </Text>
                     </View>
-                    <Text style={styles.ticketTypeAvailable}>
+                    <View style={styles.ticketTypePricing}>
+                      {ticketType.originalPrice && ticketType.originalPrice !== ticketType.price && (
+                        <Text style={[
+                          styles.ticketTypeOriginalPrice,
+                          selectedTicketType.id === ticketType.id && styles.ticketTypeOriginalPriceActive
+                        ]}>
+                          {ticketType.originalPrice}
+                        </Text>
+                      )}
+                      <Text style={[
+                        styles.ticketTypePrice,
+                        selectedTicketType.id === ticketType.id && styles.ticketTypePriceActive
+                      ]}>
+                        {ticketType.price}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.ticketTypeAvailability}>
+                    <Text style={[
+                      styles.ticketTypeAvailable,
+                      selectedTicketType.id === ticketType.id && styles.ticketTypeAvailableActive
+                    ]}>
                       {ticketType.available} disponibles
                     </Text>
-                  </TouchableOpacity>
-                ))}
+                    {selectedTicketType.id === ticketType.id && (
+                      <Ionicons name="checkmark-circle" size={20} color={Colors.light.primary} />
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
             </View>
 
             {/* Quantity and Price */}
@@ -333,27 +367,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: Colors.light.background,
-  },
-  ticketTypeGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  ticketTypeButton: {
-    flex: 1,
-    minWidth: '48%',
-    backgroundColor: Colors.light.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.light.border,
-  },
-  ticketTypeButtonSelected: {
-    backgroundColor: Colors.light.primary + '10',
-    borderColor: Colors.light.primary,
-  },
-  ticketTypeContent: {
-    marginBottom: Spacing.sm,
   },
   scrollView: {
     flex: 1,
@@ -498,7 +511,10 @@ const styles = StyleSheet.create({
   },
   purchaseContainer: {
     backgroundColor: Colors.light.background,
-    paddingBottom: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: Colors.light.border,
+    elevation: 0, // Quitar la elevación en Android
+    shadowColor: 'transparent', // Quitar la sombra en iOS
   },
   purchaseContent: {
     padding: Spacing.lg,
@@ -511,42 +527,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: Colors.light.text,
     marginBottom: Spacing.md,
-  },
-  ticketTypeGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  ticketTypeButton: {
-    flex: 1,
-    minWidth: '48%',
-    backgroundColor: Colors.light.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.light.border,
-  },
-  ticketTypeButtonSelected: {
-    backgroundColor: Colors.light.primary + '10',
-    borderColor: Colors.light.primary,
-  },
-  ticketTypeContent: {
-    marginBottom: Spacing.sm,
-  },
-  ticketTypeName: {
-    fontSize: FontSizes.md,
-    fontWeight: '600',
-    color: Colors.light.text,
-    marginBottom: Spacing.xs,
-  },
-  ticketTypePrice: {
-    fontSize: FontSizes.lg,
-    fontWeight: '700',
-    color: Colors.light.primary,
-  },
-  ticketTypeAvailable: {
-    fontSize: FontSizes.sm,
-    color: Colors.light.textSecondary,
   },
   ticketTypeCard: {
     backgroundColor: Colors.light.surface,
