@@ -17,17 +17,24 @@ export default function TabLayout() {
         tabBarButton: HapticTab,
       }}>
       <Tabs.Screen
-        name="index"
+        name="explore"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          title: 'Eventos',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="calendar" color={color} />,
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="my-tickets"
         options={{
-          title: 'Explore',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
+          title: 'Mis Entradas',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="ticket" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="qr"
+        options={{
+          title: 'QR',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="qrcode" color={color} />,
         }}
       />
     </Tabs>
