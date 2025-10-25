@@ -9,6 +9,7 @@ import {
   ImageBackground,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSizes, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 
 interface CardProps {
@@ -25,6 +26,14 @@ interface CardProps {
   style?: ViewStyle;
   children?: React.ReactNode;
   variant?: 'default' | 'netflix' | 'hero';
+  actions?: CardAction[];
+}
+
+interface CardAction {
+  icon: keyof typeof Ionicons.glyphMap;
+  label?: string;
+  onPress?: () => void;
+  intent?: 'primary' | 'neutral';
 }
 
 const Card: React.FC<CardProps> = ({
@@ -41,32 +50,42 @@ const Card: React.FC<CardProps> = ({
   style,
   children,
   variant = 'default',
+  actions,
 }) => {
-  const getStatusColor = () => {
+  const getStatusVisuals = () => {
     switch (status) {
       case 'available':
-        return Colors.light.available;
+        return {
+          chipColor: Colors.light.success,
+          chipBackground: 'rgba(16, 185, 129, 0.12)',
+          icon: 'checkmark-circle' as const,
+          label: 'Disponible',
+        };
       case 'soldOut':
-        return Colors.light.soldOut;
+        return {
+          chipColor: Colors.light.error,
+          chipBackground: 'rgba(239, 68, 68, 0.12)',
+          icon: 'close-circle' as const,
+          label: 'Agotado',
+        };
       case 'pending':
-        return Colors.light.pending;
+        return {
+          chipColor: Colors.light.warning,
+          chipBackground: 'rgba(245, 158, 11, 0.12)',
+          icon: 'time-outline',
+          label: 'Pendiente',
+        };
       default:
-        return Colors.light.available;
+        return {
+          chipColor: Colors.light.success,
+          chipBackground: 'rgba(16, 185, 129, 0.12)',
+          icon: 'checkmark-circle' as const,
+          label: 'Disponible',
+        };
     }
   };
 
-  const getStatusText = () => {
-    switch (status) {
-      case 'available':
-        return 'Disponible';
-      case 'soldOut':
-        return 'Agotado';
-      case 'pending':
-        return 'Pendiente';
-      default:
-        return 'Disponible';
-    }
-  };
+  const statusVisuals = getStatusVisuals();
 
   const CardContent = () => {
     if (variant === 'netflix') {
@@ -118,11 +137,21 @@ const Card: React.FC<CardProps> = ({
         </View>
       );
     }
-
     return (
       <View style={[styles.card, style]}>
-        {imageUrl && (
-          <Image source={{ uri: imageUrl }} style={styles.image} resizeMode="cover" />
+        {imageUrl ? (
+          <View style={styles.thumbnailWrapper}>
+            <Image source={{ uri: imageUrl }} style={styles.thumbnail} resizeMode="cover" />
+            {category && (
+              <View style={styles.categoryPill}>
+                <Text style={styles.categoryPillText}>{category}</Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <View style={[styles.thumbnailWrapper, styles.thumbnailPlaceholder]}>
+            <Ionicons name="image-outline" size={28} color={Colors.light.textMuted} />
+          </View>
         )}
 
         <View style={styles.content}>
@@ -137,9 +166,23 @@ const Card: React.FC<CardProps> = ({
                 </Text>
               )}
             </View>
-
-            <View style={[styles.statusBadge, { backgroundColor: getStatusColor() }]}>
-              <Text style={styles.statusText}>{getStatusText()}</Text>
+            <View
+              style={[
+                styles.statusBadge,
+                {
+                  backgroundColor: statusVisuals.chipBackground,
+                },
+              ]}
+            >
+              <Ionicons
+                name={statusVisuals.icon as any}
+                size={18}
+                color={statusVisuals.chipColor}
+                style={styles.statusIcon}
+              />
+              <Text style={[styles.statusText, { color: statusVisuals.chipColor }]}>
+                {statusVisuals.label}
+              </Text>
             </View>
           </View>
 
@@ -149,11 +192,63 @@ const Card: React.FC<CardProps> = ({
             </Text>
           )}
 
+          {(rating || (!imageUrl && category)) && (
+            <View style={styles.metaRow}>
+              {rating && (
+                <View style={styles.metaItem}>
+                  <Ionicons name="star" size={14} color="#FBBF24" />
+                  <Text style={[styles.metaText, styles.metaTextStrong]}>{rating.toFixed(1)}</Text>
+                </View>
+              )}
+              {!imageUrl && category && (
+                <View style={styles.metaItem}>
+                  <Ionicons name="albums-outline" size={14} color={Colors.light.primary} />
+                  <Text style={styles.metaText}>{category}</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {children}
+
           {price && (
             <Text style={styles.price}>{price}</Text>
           )}
 
-          {children}
+          {!!actions?.length && (
+            <View style={styles.actionsRow}>
+              {actions.map((action, index) => {
+                const isPrimary = action.intent === 'primary';
+                return (
+                  <TouchableOpacity
+                    key={`${action.icon}-${index}`}
+                    onPress={action.onPress}
+                    style={[
+                      styles.actionButton,
+                      isPrimary && styles.actionButtonPrimary,
+                    ]}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name={action.icon}
+                      size={18}
+                      color={isPrimary ? Colors.light.textLight : Colors.light.icon}
+                    />
+                    {action.label && (
+                      <Text
+                        style={[
+                          styles.actionLabel,
+                          isPrimary && styles.actionLabelPrimary,
+                        ]}
+                      >
+                        {action.label}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
         </View>
       </View>
     );
@@ -172,18 +267,29 @@ const Card: React.FC<CardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
+    flexDirection: 'row',
+    gap: Spacing.lg,
     backgroundColor: Colors.light.surface,
-    borderRadius: BorderRadius.lg,
-    marginBottom: Spacing.md,
-    overflow: 'hidden',
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.lg,
     ...Shadows.md,
   },
-  image: {
+  thumbnailWrapper: {
+    width: 96,
+    height: 96,
+    borderRadius: BorderRadius.lg,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: Colors.light.backgroundSecondary,
+    ...Shadows.sm,
+  },
+  thumbnail: {
     width: '100%',
-    height: 200,
+    height: '100%',
   },
   content: {
-    padding: Spacing.md,
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
@@ -206,14 +312,18 @@ const styles = StyleSheet.create({
     color: Colors.light.textSecondary,
   },
   statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs / 2,
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.round,
+  },
+  statusIcon: {
+    marginRight: Spacing.xs / 2,
   },
   statusText: {
-    fontSize: FontSizes.xs,
+    fontSize: FontSizes.sm,
     fontWeight: '600',
-    color: Colors.light.textLight,
   },
   description: {
     fontSize: FontSizes.md,
@@ -221,11 +331,73 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: Spacing.sm,
   },
+  metaRow: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    marginBottom: Spacing.sm,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs / 2,
+  },
+  metaText: {
+    fontSize: FontSizes.sm,
+    color: Colors.light.textSecondary,
+  },
+  metaTextStrong: {
+    fontWeight: '700',
+    color: Colors.light.text,
+  },
   price: {
     fontSize: FontSizes.xl,
     fontWeight: '700',
     color: Colors.light.primary,
     marginTop: Spacing.xs,
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs / 2,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.round,
+    backgroundColor: Colors.light.surfaceElevated,
+  },
+  actionButtonPrimary: {
+    backgroundColor: Colors.light.primary,
+  },
+  actionLabel: {
+    fontSize: FontSizes.sm,
+    color: Colors.light.icon,
+    fontWeight: '600',
+  },
+  actionLabelPrimary: {
+    color: Colors.light.textLight,
+  },
+  categoryPill: {
+    position: 'absolute',
+    bottom: Spacing.sm,
+    left: Spacing.sm,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs / 2,
+    borderRadius: BorderRadius.round,
+  },
+  categoryPillText: {
+    fontSize: FontSizes.xs,
+    color: Colors.light.textLight,
+    fontWeight: '600',
+  },
+  thumbnailPlaceholder: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   // Netflix-style card
   netflixCard: {

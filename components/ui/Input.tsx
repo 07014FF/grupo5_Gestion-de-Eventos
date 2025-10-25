@@ -47,13 +47,13 @@ const Input: React.FC<InputProps> = ({
       alignItems: 'center' as const,
       paddingHorizontal: Spacing.md,
       paddingVertical: Spacing.sm,
-      borderRadius: BorderRadius.md,
+      borderRadius: BorderRadius.lg,
     };
 
     if (variant === 'filled') {
       return {
         ...baseStyle,
-        backgroundColor: Colors.light.backgroundSecondary,
+        backgroundColor: '#2A2A2A',
         borderWidth: 0,
       };
     }
@@ -62,11 +62,11 @@ const Input: React.FC<InputProps> = ({
       ...baseStyle,
       borderWidth: 1,
       borderColor: error
-        ? Colors.light.error
+        ? Colors.dark.error
         : isFocused
-        ? Colors.light.primary
-        : Colors.light.border,
-      backgroundColor: Colors.light.surface,
+        ? Colors.dark.primary
+        : 'rgba(255, 255, 255, 0.15)',
+      backgroundColor: '#2A2A2A',
     };
   };
 
@@ -79,7 +79,7 @@ const Input: React.FC<InputProps> = ({
           <Ionicons
             name={leftIcon}
             size={20}
-            color={Colors.light.icon}
+            color="#94A3B8"
             style={styles.leftIcon}
           />
         )}
@@ -89,7 +89,7 @@ const Input: React.FC<InputProps> = ({
           secureTextEntry={shouldShowPassword}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          placeholderTextColor={Colors.light.textSecondary}
+          placeholderTextColor="#64748B"
           {...textInputProps}
         />
 
@@ -101,14 +101,14 @@ const Input: React.FC<InputProps> = ({
             <Ionicons
               name={isPasswordVisible ? 'eye-off' : 'eye'}
               size={20}
-              color={Colors.light.icon}
+              color="#94A3B8"
             />
           </TouchableOpacity>
         )}
 
         {rightIcon && !isPassword && (
           <TouchableOpacity onPress={onRightIconPress} style={styles.rightIcon}>
-            <Ionicons name={rightIcon} size={20} color={Colors.light.icon} />
+            <Ionicons name={rightIcon} size={20} color="#94A3B8" />
           </TouchableOpacity>
         )}
       </View>
@@ -126,14 +126,14 @@ const styles = StyleSheet.create({
   label: {
     fontSize: FontSizes.sm,
     fontWeight: '600',
-    color: Colors.light.text,
+    color: '#FFFFFF',
     marginBottom: Spacing.xs,
   },
   input: {
     flex: 1,
     fontSize: FontSizes.md,
-    color: Colors.light.text,
-    paddingVertical: 0,
+    color: '#FFFFFF',
+    paddingVertical: Spacing.sm,
   },
   leftIcon: {
     marginRight: Spacing.sm,
@@ -144,12 +144,12 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: FontSizes.xs,
-    color: Colors.light.error,
+    color: Colors.dark.error,
     marginTop: Spacing.xs,
   },
   helperText: {
     fontSize: FontSizes.xs,
-    color: Colors.light.textSecondary,
+    color: '#94A3B8',
     marginTop: Spacing.xs,
   },
 });

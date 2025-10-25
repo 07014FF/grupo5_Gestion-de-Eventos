@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,100 +7,112 @@ import {
   StatusBar,
   TouchableOpacity,
   FlatList,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Button } from '@/components/ui';
 import { Colors, FontSizes, Spacing, BorderRadius, Shadows } from '@/constants/theme';
-
-// Datos de ejemplo para entradas del usuario
-const MY_TICKETS = [
-  {
-    id: '1',
-    eventTitle: 'Festival de Jazz 2024',
-    venue: 'Centro Cultural',
-    date: '2024-03-15',
-    time: '20:00',
-    ticketType: 'General',
-    qrCode: 'QR_001_JAZZ_2024',
-    status: 'active',
-    imageUrl: 'https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=400',
-    seatNumber: 'A-15',
-    price: '$45.000',
-  },
-  {
-    id: '2',
-    eventTitle: 'Obra: Romeo y Julieta',
-    venue: 'Teatro Municipal',
-    date: '2024-03-20',
-    time: '19:30',
-    ticketType: 'General',
-    qrCode: 'QR_002_ROMEO_2024',
-    status: 'active',
-    imageUrl: 'https://images.unsplash.com/photo-1507924538820-ede94a04019d?w=400',
-    seatNumber: 'B-22',
-    price: '$35.000',
-  },
-  {
-    id: '3',
-    eventTitle: 'Concierto Sinfónico',
-    venue: 'Auditorio Nacional',
-    date: '2024-02-10',
-    time: '21:00',
-    ticketType: 'Premium',
-    qrCode: 'QR_003_SINF_2024',
-    status: 'used',
-    imageUrl: 'https://images.unsplash.com/photo-1465847899084-d164df4dedc6?w=400',
-    seatNumber: 'C-8',
-    price: '$60.000',
-  },
-];
+import { useAuth } from '@/context/AuthContext';
+import { TicketServiceSupabase } from '@/services/ticket.service.supabase';
+import { Ticket, TicketStatus } from '@/types/ticket.types';
+import { TicketQRModal } from '@/components/TicketQRModal';
+import { ErrorHandler } from '@/utils/errors';
 
 export default function MyTicketsScreen() {
+  const { user } = useAuth();
   const [filter, setFilter] = useState<'all' | 'active' | 'used'>('all');
+  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [qrModalVisible, setQrModalVisible] = useState(false);
 
-  const filteredTickets = MY_TICKETS.filter(ticket => {
-    if (filter === 'all') return true;
-    return ticket.status === filter;
-  });
+  // Load tickets on mount
+  useEffect(() => {
+    loadTickets();
+  }, [user]);
 
-  const handleTicketPress = (ticketId: string) => {
-    console.log('Entrada seleccionada:', ticketId);
+  const loadTickets = async () => {
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const result = await TicketServiceSupabase.getUserTickets(user.id);
+
+      if (result.success) {
+        setTickets(result.data);
+      } else {
+        ErrorHandler.log(result.error, 'MyTicketsScreen.loadTickets');
+        Alert.alert('Error', result.error.getUserMessage());
+      }
+    } catch (error) {
+      ErrorHandler.log(error, 'MyTicketsScreen.loadTickets');
+      const { message } = ErrorHandler.handle(error);
+      Alert.alert('Error', message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleDownloadTicket = (ticketId: string) => {
-    console.log('Descargar entrada:', ticketId);
+  const filteredTickets = tickets.filter((ticket) => {
+    if (filter === 'all') return true;
+    if (filter === 'active') return ticket.status === TicketStatus.ACTIVE;
+    if (filter === 'used') return ticket.status === TicketStatus.USED;
+    return true;
+  });
+
+  const handleTicketPress = (ticket: Ticket) => {
+    setSelectedTicket(ticket);
+    setQrModalVisible(true);
+  };
+
+  const handleDownloadTicket = (ticket: Ticket) => {
+    // Open the QR modal which has the download functionality
+    setSelectedTicket(ticket);
+    setQrModalVisible(true);
   };
 
   const handleShareTicket = (ticketId: string) => {
-    console.log('Compartir entrada:', ticketId);
+    // TODO: Implement share functionality
+    Alert.alert('Compartir Entrada', 'Esta función estará disponible próximamente.');
   };
 
-  const renderTicketCard = ({ item }: { item: typeof MY_TICKETS[0] }) => (
+  const renderTicketCard = ({ item }: { item: Ticket }) => (
     <TouchableOpacity
       style={styles.ticketCard}
-      onPress={() => handleTicketPress(item.id)}
+      onPress={() => handleTicketPress(item)}
     >
       <View style={styles.ticketHeader}>
         <View style={styles.ticketInfo}>
-          <Text style={styles.eventTitle}>{item.eventTitle}</Text>
-          <Text style={styles.venue}>{item.venue}</Text>
+          <Text style={styles.eventTitle}>{item.event.title}</Text>
+          <Text style={styles.venue}>{item.event.venue || item.event.location}</Text>
           <View style={styles.dateTimeContainer}>
             <View style={styles.dateTime}>
-              <Ionicons name="calendar-outline" size={16} color={Colors.light.textSecondary} />
-              <Text style={styles.dateTimeText}>{item.date}</Text>
+              <Ionicons name="calendar-outline" size={16} color={Colors.dark.textSecondary} />
+              <Text style={styles.dateTimeText}>{item.event.date}</Text>
             </View>
             <View style={styles.dateTime}>
-              <Ionicons name="time-outline" size={16} color={Colors.light.textSecondary} />
-              <Text style={styles.dateTimeText}>{item.time}</Text>
+              <Ionicons name="time-outline" size={16} color={Colors.dark.textSecondary} />
+              <Text style={styles.dateTimeText}>{item.event.time}</Text>
             </View>
           </View>
         </View>
-        <View style={[
-          styles.statusBadge,
-          { backgroundColor: item.status === 'active' ? Colors.light.success : Colors.light.textSecondary }
-        ]}>
+        <View
+          style={[
+            styles.statusBadge,
+            {
+              backgroundColor:
+                item.status === TicketStatus.ACTIVE
+                  ? Colors.dark.success
+                  : Colors.dark.textSecondary,
+            },
+          ]}
+        >
           <Text style={styles.statusText}>
-            {item.status === 'active' ? 'Activa' : 'Usada'}
+            {item.status === TicketStatus.ACTIVE ? 'Activa' : 'Usada'}
           </Text>
         </View>
       </View>
@@ -110,13 +122,15 @@ export default function MyTicketsScreen() {
           <Text style={styles.detailLabel}>Tipo:</Text>
           <Text style={styles.detailValue}>{item.ticketType}</Text>
         </View>
-        <View style={styles.ticketDetailItem}>
-          <Text style={styles.detailLabel}>Asiento:</Text>
-          <Text style={styles.detailValue}>{item.seatNumber}</Text>
-        </View>
+        {item.seatNumber && (
+          <View style={styles.ticketDetailItem}>
+            <Text style={styles.detailLabel}>Asiento:</Text>
+            <Text style={styles.detailValue}>{item.seatNumber}</Text>
+          </View>
+        )}
         <View style={styles.ticketDetailItem}>
           <Text style={styles.detailLabel}>Precio:</Text>
-          <Text style={styles.detailValue}>{item.price}</Text>
+          <Text style={styles.detailValue}>${item.price.toLocaleString()}</Text>
         </View>
       </View>
 
@@ -125,33 +139,42 @@ export default function MyTicketsScreen() {
           title="Ver QR"
           variant="primary"
           size="small"
-          onPress={() => handleTicketPress(item.id)}
+          onPress={() => handleTicketPress(item)}
           style={styles.actionButton}
         />
         <Button
           title="Descargar"
           variant="outline"
           size="small"
-          onPress={() => handleDownloadTicket(item.id)}
+          onPress={() => handleDownloadTicket(item)}
           style={styles.actionButton}
         />
         <TouchableOpacity
           style={styles.shareButton}
           onPress={() => handleShareTicket(item.id)}
         >
-          <Ionicons name="share-outline" size={20} color={Colors.light.primary} />
+          <Ionicons name="share-outline" size={20} color={Colors.dark.primary} />
         </TouchableOpacity>
       </View>
     </TouchableOpacity>
   );
 
+  // Get ticket counts
+  const activeCount = tickets.filter((t) => t.status === TicketStatus.ACTIVE).length;
+  const usedCount = tickets.filter((t) => t.status === TicketStatus.USED).length;
+
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor={Colors.light.background} barStyle="dark-content" />
+      <StatusBar backgroundColor={Colors.dark.background} barStyle="light-content" />
 
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Mis Entradas</Text>
+        {!loading && (
+          <TouchableOpacity onPress={loadTickets} style={styles.refreshButton}>
+            <Ionicons name="refresh" size={24} color={Colors.dark.primary} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Filter Tabs */}
@@ -161,7 +184,7 @@ export default function MyTicketsScreen() {
           onPress={() => setFilter('all')}
         >
           <Text style={[styles.filterTabText, filter === 'all' && styles.filterTabTextActive]}>
-            Todas ({MY_TICKETS.length})
+            Todas ({tickets.length})
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -169,7 +192,7 @@ export default function MyTicketsScreen() {
           onPress={() => setFilter('active')}
         >
           <Text style={[styles.filterTabText, filter === 'active' && styles.filterTabTextActive]}>
-            Activas ({MY_TICKETS.filter(t => t.status === 'active').length})
+            Activas ({activeCount})
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -177,13 +200,19 @@ export default function MyTicketsScreen() {
           onPress={() => setFilter('used')}
         >
           <Text style={[styles.filterTabText, filter === 'used' && styles.filterTabTextActive]}>
-            Usadas ({MY_TICKETS.filter(t => t.status === 'used').length})
+            Usadas ({usedCount})
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Tickets List */}
-      {filteredTickets.length > 0 ? (
+      {/* Loading State */}
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.dark.primary} />
+          <Text style={styles.loadingText}>Cargando entradas...</Text>
+        </View>
+      ) : filteredTickets.length > 0 ? (
+        /* Tickets List */
         <FlatList
           data={filteredTickets}
           renderItem={renderTicketCard}
@@ -193,8 +222,9 @@ export default function MyTicketsScreen() {
           showsVerticalScrollIndicator={false}
         />
       ) : (
+        /* Empty State */
         <View style={styles.emptyState}>
-          <Ionicons name="ticket-outline" size={64} color={Colors.light.textSecondary} />
+          <Ionicons name="ticket-outline" size={64} color={Colors.dark.textSecondary} />
           <Text style={styles.emptyTitle}>No tienes entradas</Text>
           <Text style={styles.emptySubtitle}>
             {filter === 'all'
@@ -209,6 +239,16 @@ export default function MyTicketsScreen() {
           />
         </View>
       )}
+
+      {/* QR Modal */}
+      <TicketQRModal
+        visible={qrModalVisible}
+        ticket={selectedTicket}
+        onClose={() => {
+          setQrModalVisible(false);
+          setSelectedTicket(null);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -216,25 +256,41 @@ export default function MyTicketsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.background,
+    backgroundColor: Colors.dark.background,
   },
   header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
-    backgroundColor: Colors.light.background,
+    backgroundColor: Colors.dark.background,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   headerTitle: {
     fontSize: FontSizes.xxl,
     fontWeight: '700',
-    color: Colors.light.text,
+    color: Colors.dark.text,
+  },
+  refreshButton: {
+    padding: Spacing.xs,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+  loadingText: {
+    fontSize: FontSizes.md,
+    color: Colors.dark.textSecondary,
   },
   filterContainer: {
     flexDirection: 'row',
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
-    backgroundColor: Colors.light.backgroundSecondary,
+    backgroundColor: Colors.dark.backgroundSecondary,
   },
   filterTab: {
     flex: 1,
@@ -244,15 +300,15 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.xs,
   },
   filterTabActive: {
-    backgroundColor: Colors.light.primary,
+    backgroundColor: Colors.dark.primary,
   },
   filterTabText: {
     fontSize: FontSizes.sm,
     fontWeight: '600',
-    color: Colors.light.textSecondary,
+    color: Colors.dark.textSecondary,
   },
   filterTabTextActive: {
-    color: Colors.light.textLight,
+    color: Colors.dark.textLight,
   },
   ticketsList: {
     flex: 1,
@@ -261,12 +317,12 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
   },
   ticketCard: {
-    backgroundColor: Colors.light.background,
+    backgroundColor: Colors.dark.surface,
     borderRadius: BorderRadius.lg,
     padding: Spacing.lg,
     marginBottom: Spacing.md,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     ...Shadows.sm,
   },
   ticketHeader: {
@@ -281,12 +337,12 @@ const styles = StyleSheet.create({
   eventTitle: {
     fontSize: FontSizes.lg,
     fontWeight: '700',
-    color: Colors.light.text,
+    color: Colors.dark.text,
     marginBottom: Spacing.xs,
   },
   venue: {
     fontSize: FontSizes.md,
-    color: Colors.light.textSecondary,
+    color: Colors.dark.textSecondary,
     marginBottom: Spacing.sm,
   },
   dateTimeContainer: {
@@ -300,7 +356,7 @@ const styles = StyleSheet.create({
   },
   dateTimeText: {
     fontSize: FontSizes.sm,
-    color: Colors.light.textSecondary,
+    color: Colors.dark.textSecondary,
   },
   statusBadge: {
     paddingHorizontal: Spacing.sm,
@@ -310,7 +366,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: FontSizes.xs,
     fontWeight: '600',
-    color: Colors.light.textLight,
+    color: Colors.dark.textLight,
   },
   ticketDetails: {
     flexDirection: 'row',
@@ -318,20 +374,20 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     paddingTop: Spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
   ticketDetailItem: {
     alignItems: 'center',
   },
   detailLabel: {
     fontSize: FontSizes.xs,
-    color: Colors.light.textSecondary,
+    color: Colors.dark.textSecondary,
     marginBottom: Spacing.xs / 2,
   },
   detailValue: {
     fontSize: FontSizes.sm,
     fontWeight: '600',
-    color: Colors.light.text,
+    color: Colors.dark.text,
   },
   ticketActions: {
     flexDirection: 'row',
@@ -345,7 +401,7 @@ const styles = StyleSheet.create({
     padding: Spacing.sm,
     borderRadius: BorderRadius.md,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -358,13 +414,13 @@ const styles = StyleSheet.create({
   emptyTitle: {
     fontSize: FontSizes.xl,
     fontWeight: '700',
-    color: Colors.light.text,
+    color: Colors.dark.text,
     marginTop: Spacing.lg,
     marginBottom: Spacing.sm,
   },
   emptySubtitle: {
     fontSize: FontSizes.md,
-    color: Colors.light.textSecondary,
+    color: Colors.dark.textSecondary,
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: Spacing.xl,

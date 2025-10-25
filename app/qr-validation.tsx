@@ -55,6 +55,35 @@ export default function QRValidationScreen() {
   const router = useRouter();
   const [isScanning, setIsScanning] = useState(false);
   const [validationResult, setValidationResult] = useState<ValidationResult | null>(null);
+  const screenActions = [
+    {
+      key: 'history',
+      icon: 'time-outline',
+      label: 'Historial',
+      onPress: () =>
+        Alert.alert('Historial de accesos', 'Consulta los últimos códigos validados.'),
+    },
+    {
+      key: 'flash',
+      icon: 'flashlight-outline',
+      label: 'Flash',
+      onPress: () =>
+        Alert.alert('Control de linterna', 'Pronto podrás activar la linterna desde aquí.'),
+    },
+    {
+      key: 'manual',
+      icon: 'document-text-outline',
+      label: 'Ingreso manual',
+      onPress: () =>
+        Alert.alert('Ingreso manual', 'Ingresa el código si el QR no está disponible.'),
+    },
+  ];
+
+  const instructions = [
+    'Mantén el código QR dentro del marco',
+    'Asegúrate de tener buena iluminación',
+    'El código debe estar completamente visible',
+  ];
 
   // Simulación del escáner QR
   const simulateQRScan = () => {
@@ -88,6 +117,20 @@ export default function QRValidationScreen() {
         return Colors.light.error;
       default:
         return Colors.light.textSecondary;
+    }
+  };
+
+  const getStatusBackground = (status: string) => {
+    switch (status) {
+      case 'valid':
+        return 'rgba(16, 185, 129, 0.12)';
+      case 'used':
+        return 'rgba(245, 158, 11, 0.12)';
+      case 'expired':
+      case 'invalid':
+        return 'rgba(239, 68, 68, 0.12)';
+      default:
+        return 'rgba(148, 163, 184, 0.12)';
     }
   };
 
@@ -156,6 +199,24 @@ export default function QRValidationScreen() {
         </TouchableOpacity>
       </View>
 
+      <View style={styles.topActions}>
+        {screenActions.map(action => (
+          <TouchableOpacity
+            key={action.key}
+            style={styles.topActionButton}
+            onPress={action.onPress}
+            activeOpacity={0.85}
+          >
+            <Ionicons
+              name={action.icon as keyof typeof Ionicons.glyphMap}
+              size={20}
+              color={Colors.light.primary}
+            />
+            <Text style={styles.topActionLabel}>{action.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <View style={styles.content}>
         {!validationResult ? (
           // Scanner Interface
@@ -189,11 +250,14 @@ export default function QRValidationScreen() {
 
             <View style={styles.instructionsContainer}>
               <Text style={styles.instructionsTitle}>Instrucciones</Text>
-              <Text style={styles.instructionsText}>
-                • Mantén el código QR dentro del marco{'\n'}
-                • Asegúrate de tener buena iluminación{'\n'}
-                • El código debe estar completamente visible
-              </Text>
+              {instructions.map((instruction) => (
+                <View key={instruction} style={styles.instructionItem}>
+                  <View style={styles.instructionIcon}>
+                    <Ionicons name="checkmark-circle" size={16} color={Colors.light.primary} />
+                  </View>
+                  <Text style={styles.instructionsText}>{instruction}</Text>
+                </View>
+              ))}
             </View>
 
             <Button
@@ -207,16 +271,33 @@ export default function QRValidationScreen() {
         ) : (
           // Validation Result
           <View style={styles.resultContainer}>
-            <View style={[styles.statusCard, { borderColor: getStatusColor(validationResult.status) }]}>
+            <View
+              style={[
+                styles.statusCard,
+                {
+                  borderLeftColor: getStatusColor(validationResult.status),
+                  backgroundColor: getStatusBackground(validationResult.status),
+                },
+              ]}
+            >
               <View style={styles.statusHeader}>
-                <Ionicons
-                  name={getStatusIcon(validationResult.status)}
-                  size={48}
-                  color={getStatusColor(validationResult.status)}
-                />
-                <Text style={[styles.statusText, { color: getStatusColor(validationResult.status) }]}>
-                  {getStatusText(validationResult.status)}
-                </Text>
+                <View style={styles.statusIconWrapper}>
+                  <Ionicons
+                    name={getStatusIcon(validationResult.status)}
+                    size={36}
+                    color={getStatusColor(validationResult.status)}
+                  />
+                </View>
+                <View style={styles.statusHeaderText}>
+                  <Text style={[styles.statusText, { color: getStatusColor(validationResult.status) }]}>
+                    {getStatusText(validationResult.status)}
+                  </Text>
+                  <Text style={styles.statusSubtext}>
+                    {validationResult.purchaseDate
+                      ? `Compra: ${validationResult.purchaseDate}`
+                      : 'Listo para validar'}
+                  </Text>
+                </View>
               </View>
 
               {validationResult.ticketId && (
@@ -309,9 +390,35 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.light.text,
   },
+  topActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  topActionButton: {
+    flex: 1,
+    backgroundColor: Colors.light.surface,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    ...Shadows.sm,
+  },
+  topActionLabel: {
+    fontSize: FontSizes.sm,
+    fontWeight: '600',
+    color: Colors.light.text,
+    textAlign: 'center',
+  },
   content: {
     flex: 1,
-    padding: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.xl,
   },
   scannerContainer: {
     flex: 1,
@@ -394,8 +501,9 @@ const styles = StyleSheet.create({
   instructionsContainer: {
     backgroundColor: Colors.light.surface,
     padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     marginBottom: Spacing.xl,
+    gap: Spacing.sm,
     ...Shadows.sm,
   },
   instructionsTitle: {
@@ -404,10 +512,24 @@ const styles = StyleSheet.create({
     color: Colors.light.text,
     marginBottom: Spacing.sm,
   },
+  instructionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  instructionIcon: {
+    width: 24,
+    height: 24,
+    borderRadius: BorderRadius.round,
+    backgroundColor: Colors.light.backgroundSecondary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   instructionsText: {
     fontSize: FontSizes.sm,
     color: Colors.light.textSecondary,
     lineHeight: 20,
+    flex: 1,
   },
   scanButton: {
     width: '100%',
@@ -418,37 +540,56 @@ const styles = StyleSheet.create({
   },
   statusCard: {
     backgroundColor: Colors.light.surface,
-    padding: Spacing.xl,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 2,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    borderLeftWidth: 4,
     marginBottom: Spacing.xl,
     ...Shadows.md,
   },
   statusHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: Spacing.md,
     marginBottom: Spacing.lg,
+  },
+  statusIconWrapper: {
+    width: 56,
+    height: 56,
+    borderRadius: BorderRadius.round,
+    backgroundColor: Colors.light.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadows.sm,
+  },
+  statusHeaderText: {
+    flex: 1,
+    gap: Spacing.xs / 2,
   },
   statusText: {
     fontSize: FontSizes.xl,
     fontWeight: '700',
-    marginTop: Spacing.md,
-    textAlign: 'center',
+  },
+  statusSubtext: {
+    fontSize: FontSizes.sm,
+    color: Colors.light.textSecondary,
   },
   ticketDetails: {
-    gap: Spacing.md,
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
   },
   ticketTitle: {
     fontSize: FontSizes.lg,
     fontWeight: '700',
     color: Colors.light.text,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: Spacing.xs,
+    alignItems: 'flex-start',
+    padding: Spacing.sm,
+    backgroundColor: Colors.light.surfaceElevated,
+    borderRadius: BorderRadius.md,
   },
   detailLabel: {
     fontSize: FontSizes.sm,

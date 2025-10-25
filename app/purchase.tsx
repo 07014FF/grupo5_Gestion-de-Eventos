@@ -1,32 +1,37 @@
-import React, { useState } from 'react';
-import {
-  View,
-  ScrollView,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  StatusBar,
-  Alert,
-  TouchableOpacity,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Button, Input } from '@/components/ui';
-import { Colors, FontSizes, Spacing, BorderRadius, Shadows } from '@/constants/theme';
+import { BorderRadius, Colors, FontSizes, Spacing } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
+import { TicketServiceSupabase } from '@/services/ticket.service.supabase';
+import { PaymentService, PaymentGateway } from '@/services/payment.service';
+import { Event, PaymentMethod, UserInfo } from '@/types/ticket.types';
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 // Ocultar header
 export const options = {
   headerShown: false,
 };
 
-interface PaymentMethod {
+interface PaymentMethodOption {
   id: string;
   name: string;
   icon: keyof typeof Ionicons.glyphMap;
   fee?: number;
 }
 
-const PAYMENT_METHODS: PaymentMethod[] = [
+const PAYMENT_METHODS: PaymentMethodOption[] = [
   { id: 'card', name: 'Tarjeta de Crédito/Débito', icon: 'card-outline' },
   { id: 'pse', name: 'PSE', icon: 'business-outline', fee: 3000 },
   { id: 'nequi', name: 'Nequi', icon: 'phone-portrait-outline' },
@@ -36,25 +41,40 @@ const PAYMENT_METHODS: PaymentMethod[] = [
 export default function PurchaseScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const { user } = useAuth();
+
+  // Redirigir si el usuario no está autenticado
+  useEffect(() => {
+    if (!user) {
+      router.push('/login-modal');
+    }
+  }, [user, router]);
+
+  // Helper function to ensure string type
+  const toStringParam = (param: string | string[] | undefined, defaultValue: string): string => {
+    if (!param) return defaultValue;
+    return Array.isArray(param) ? param[0] : param;
+  };
 
   // Datos del evento recibidos desde event-detail
   const eventData = {
-    id: params.eventId || '1',
-    title: params.eventTitle || 'Festival de Jazz 2024',
+    id: toStringParam(params.eventId, '1'),
+    title: toStringParam(params.eventTitle, 'Festival de Jazz 2024'),
     subtitle: 'Centro Cultural',
-    date: params.eventDate || '2024-03-15',
-    time: params.eventTime || '19:30',
-    location: params.eventLocation || 'Bogotá',
-    price: params.ticketPrice ? parseInt(params.ticketPrice.replace('$', '').replace('.', '')) : 45000,
+    date: toStringParam(params.eventDate, '2024-03-15'),
+    time: toStringParam(params.eventTime, '19:30'),
+    location: toStringParam(params.eventLocation, 'Bogotá'),
+    price: params.ticketPrice ? parseInt((Array.isArray(params.ticketPrice) ? params.ticketPrice[0] : params.ticketPrice).replace('$', '').replace('.', '')) : 45000,
     availableTickets: 150,
-    ticketType: params.ticketType || 'General',
+    ticketType: toStringParam(params.ticketType, 'General'),
   };
 
   const [quantity, setQuantity] = useState(parseInt(params.quantity as string) || 1);
   const [selectedPayment, setSelectedPayment] = useState<string>('');
+  const [isProcessing, setIsProcessing] = useState(false);
   const [userInfo, setUserInfo] = useState({
-    name: '',
-    email: '',
+    name: user?.name || '',
+    email: user?.email || 'correo@prueba.com', // Simulado
     phone: '',
     document: '',
   });
@@ -74,7 +94,7 @@ export default function PurchaseScreen() {
     }
   };
 
-  const handlePurchase = () => {
+  const handlePurchase = async () => {
     if (!selectedPayment) {
       Alert.alert('Error', 'Por favor selecciona un método de pago');
       return;
@@ -85,31 +105,130 @@ export default function PurchaseScreen() {
       return;
     }
 
-    // Aquí iría la lógica de procesamiento del pago
-    Alert.alert(
-      'Compra Exitosa',
-      `Tu compra de ${quantity} entrada(s) por $${calculateTotal().toLocaleString()} ha sido procesada exitosamente.`,
-      [
+    if (!user?.id) {
+      Alert.alert('Error', 'Debes iniciar sesión para comprar entradas');
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      // Configurar pasarela de pago (cambiar a WOMPI, STRIPE, etc. según necesites)
+      PaymentService.setGateway(PaymentGateway.MOCK); // Para desarrollo
+      // PaymentService.setGateway(PaymentGateway.WOMPI); // Para producción
+
+      // 1. Crear payment intent
+      const paymentIntentResult = await PaymentService.createPaymentIntent(
+        calculateTotal(),
+        selectedPayment as PaymentMethod,
         {
-          text: 'Ver QR',
-          onPress: () => router.push('/qr-validation'),
-        },
-        {
-          text: 'OK',
-          onPress: () => router.back(),
-        },
-      ]
-    );
+          eventId: eventData.id,
+          userId: user.id,
+          quantity,
+          name: userInfo.name,
+          email: userInfo.email,
+          phone: userInfo.phone,
+        }
+      );
+
+      if (!paymentIntentResult.success) {
+        Alert.alert('Error', paymentIntentResult.error.getUserMessage());
+        return;
+      }
+
+      // 2. Procesar pago
+      const paymentResult = await PaymentService.processPayment(paymentIntentResult.data);
+
+      if (!paymentResult.success) {
+        Alert.alert('Pago Rechazado', paymentResult.error.getUserMessage());
+        return;
+      }
+
+      // 3. Verificar que el pago fue completado
+      const payment = paymentResult.data;
+      if (!payment.success || payment.status !== 'completed') {
+        Alert.alert(
+          'Pago Pendiente',
+          payment.errorMessage || 'El pago está siendo procesado. Te notificaremos cuando se confirme.'
+        );
+        return;
+      }
+
+      // 4. Crear el objeto Event para el servicio
+      const event: Event = {
+        id: eventData.id,
+        title: eventData.title,
+        subtitle: eventData.subtitle,
+        date: eventData.date,
+        time: eventData.time,
+        location: eventData.location,
+        price: eventData.price,
+        availableTickets: eventData.availableTickets,
+      };
+
+      // 5. Crear el objeto UserInfo
+      const purchaseUserInfo: UserInfo = {
+        name: userInfo.name,
+        email: userInfo.email,
+        phone: userInfo.phone,
+        document: userInfo.document,
+      };
+
+      // 6. Crear la compra con los tickets (solo si el pago fue exitoso)
+      const ticketResult = await TicketServiceSupabase.createPurchase(
+        event,
+        quantity,
+        purchaseUserInfo,
+        selectedPayment as PaymentMethod,
+        user.id
+      );
+
+      if (ticketResult.success) {
+        Alert.alert(
+          '🎉 ¡Compra Exitosa!',
+          `Tu compra de ${quantity} entrada(s) por $${calculateTotal().toLocaleString()} ha sido procesada exitosamente.\n\nID de transacción: ${payment.transactionId || payment.paymentId}`,
+          [
+            {
+              text: 'Ver Mis Entradas',
+              onPress: () => {
+                router.replace('/(tabs)/my-tickets');
+              },
+            },
+            {
+              text: 'OK',
+              onPress: () => router.back(),
+            },
+          ]
+        );
+      } else {
+        // El pago se procesó pero hubo error creando el ticket
+        // TODO: Esto debería guardarse para reconciliación
+        Alert.alert(
+          'Atención',
+          'El pago se procesó correctamente pero hubo un error generando tus entradas. Contacta a soporte con el ID: ' + payment.paymentId
+        );
+      }
+    } catch (error) {
+      console.error('Error al procesar la compra:', error);
+      Alert.alert('Error', 'No se pudo completar la compra. Intenta nuevamente.');
+    } finally {
+      setIsProcessing(false);
+    }
   };
+
+  // No renderizar nada hasta que se confirme que el usuario está autenticado
+  if (!user) {
+    return null; // O un componente de carga (spinner)
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor={Colors.light.background} barStyle="dark-content" />
+      <StatusBar backgroundColor={Colors.dark.background} barStyle="light-content" />
 
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={Colors.light.text} />
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Comprar Entrada</Text>
         <View style={{ width: 24 }} />
@@ -292,10 +411,18 @@ export default function PurchaseScreen() {
       {/* Purchase Button */}
       <View style={styles.purchaseContainer}>
         <Button
-          title={`Pagar ${calculateTotal().toLocaleString()}`}
+          title={isProcessing ? 'Procesando...' : `Pagar $${calculateTotal().toLocaleString()}`}
           onPress={handlePurchase}
           style={styles.purchaseButton}
+          disabled={isProcessing}
         />
+        {isProcessing && (
+          <ActivityIndicator
+            size="small"
+            color={Colors.light.primary}
+            style={{ marginTop: Spacing.sm }}
+          />
+        )}
       </View>
     </SafeAreaView>
   );
@@ -304,7 +431,7 @@ export default function PurchaseScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.light.background,
+    backgroundColor: Colors.dark.background,
   },
   header: {
     flexDirection: 'row',
@@ -313,32 +440,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.light.border,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
   headerTitle: {
     fontSize: FontSizes.lg,
-    fontWeight: '600',
-    color: Colors.light.text,
+    fontWeight: '700',
+    color: '#FFFFFF',
   },
   scrollView: {
     flex: 1,
   },
   eventCard: {
-    backgroundColor: Colors.light.surface,
+    backgroundColor: Colors.dark.surface,
     margin: Spacing.lg,
     padding: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    ...Shadows.md,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   eventTitle: {
     fontSize: FontSizes.xl,
-    fontWeight: '700',
-    color: Colors.light.text,
+    fontWeight: '800',
+    color: '#FFFFFF',
     marginBottom: Spacing.xs,
   },
   eventSubtitle: {
     fontSize: FontSizes.md,
-    color: Colors.light.textSecondary,
+    color: '#94A3B8',
     marginBottom: Spacing.md,
   },
   eventDetails: {
@@ -351,7 +479,7 @@ const styles = StyleSheet.create({
   },
   eventDetailText: {
     fontSize: FontSizes.sm,
-    color: Colors.light.textSecondary,
+    color: '#94A3B8',
   },
   section: {
     paddingHorizontal: Spacing.lg,
@@ -360,7 +488,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: FontSizes.lg,
     fontWeight: '700',
-    color: Colors.light.text,
+    color: '#FFFFFF',
     marginBottom: Spacing.md,
   },
   quantityContainer: {
@@ -373,46 +501,46 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: BorderRadius.round,
-    backgroundColor: Colors.light.backgroundSecondary,
+    backgroundColor: 'rgba(0, 208, 132, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: Colors.light.primary,
+    borderWidth: 2,
+    borderColor: Colors.dark.primary,
   },
   quantityDisplay: {
-    backgroundColor: Colors.light.surface,
+    backgroundColor: Colors.dark.surface,
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.md,
     marginHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   quantityText: {
     fontSize: FontSizes.xl,
     fontWeight: '700',
-    color: Colors.light.text,
+    color: '#FFFFFF',
     textAlign: 'center',
   },
   quantityNote: {
     fontSize: FontSizes.sm,
-    color: Colors.light.textSecondary,
+    color: '#94A3B8',
     textAlign: 'center',
   },
   paymentMethod: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: Colors.light.surface,
+    backgroundColor: Colors.dark.surface,
     padding: Spacing.md,
     marginBottom: Spacing.sm,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
     borderWidth: 1,
-    borderColor: Colors.light.border,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   paymentMethodSelected: {
-    borderColor: Colors.light.primary,
-    backgroundColor: Colors.light.backgroundSecondary,
+    borderColor: Colors.dark.primary,
+    backgroundColor: 'rgba(0, 208, 132, 0.1)',
   },
   paymentMethodContent: {
     flexDirection: 'row',
@@ -426,14 +554,14 @@ const styles = StyleSheet.create({
   paymentMethodName: {
     fontSize: FontSizes.md,
     fontWeight: '600',
-    color: Colors.light.text,
+    color: '#FFFFFF',
   },
   paymentMethodNameSelected: {
-    color: Colors.light.primary,
+    color: Colors.dark.primary,
   },
   paymentMethodFee: {
     fontSize: FontSizes.xs,
-    color: Colors.light.textSecondary,
+    color: '#94A3B8',
     marginTop: Spacing.xs / 2,
   },
   radioButton: {
@@ -441,24 +569,25 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     borderWidth: 2,
-    borderColor: Colors.light.border,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   radioButtonSelected: {
-    borderColor: Colors.light.primary,
+    borderColor: Colors.dark.primary,
   },
   radioButtonInner: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: Colors.light.primary,
+    backgroundColor: Colors.dark.primary,
   },
   summaryCard: {
-    backgroundColor: Colors.light.surface,
+    backgroundColor: Colors.dark.surface,
     padding: Spacing.lg,
-    borderRadius: BorderRadius.md,
-    ...Shadows.sm,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   summaryRow: {
     flexDirection: 'row',
@@ -468,36 +597,36 @@ const styles = StyleSheet.create({
   },
   summaryLabel: {
     fontSize: FontSizes.md,
-    color: Colors.light.textSecondary,
+    color: '#94A3B8',
   },
   summaryValue: {
     fontSize: FontSizes.md,
     fontWeight: '600',
-    color: Colors.light.text,
+    color: '#FFFFFF',
   },
   summaryTotal: {
     borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
     marginTop: Spacing.sm,
     paddingTop: Spacing.md,
   },
   summaryTotalLabel: {
     fontSize: FontSizes.lg,
     fontWeight: '700',
-    color: Colors.light.text,
+    color: '#FFFFFF',
   },
   summaryTotalValue: {
-    fontSize: FontSizes.lg,
-    fontWeight: '700',
-    color: Colors.light.primary,
+    fontSize: FontSizes.xl,
+    fontWeight: '800',
+    color: Colors.dark.primary,
   },
   purchaseContainer: {
     padding: Spacing.lg,
-    backgroundColor: Colors.light.background,
+    backgroundColor: Colors.dark.background,
     borderTopWidth: 1,
-    borderTopColor: Colors.light.border,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
   },
   purchaseButton: {
-    backgroundColor: Colors.light.primary,
+    backgroundColor: Colors.dark.primary,
   },
 });

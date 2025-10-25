@@ -5,8 +5,11 @@ import {
   ActivityIndicator,
   ViewStyle,
   TextStyle,
+  View
 } from 'react-native';
 import { Colors, FontSizes, ButtonStyles, Shadows } from '@/constants/theme';
+
+import { IconSymbol } from './icon-symbol';
 
 interface ButtonProps {
   title: string;
@@ -17,6 +20,8 @@ interface ButtonProps {
   disabled?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
+  leftIcon?: any; // Changed from string to any
+  leftIconColor?: string;
 }
 
 const Button: React.FC<ButtonProps> = ({
@@ -28,6 +33,8 @@ const Button: React.FC<ButtonProps> = ({
   disabled = false,
   style,
   textStyle,
+  leftIcon,
+  leftIconColor,
 }) => {
   const getButtonStyle = (): ViewStyle => {
     const baseStyle = size === 'small' ? ButtonStyles.small : ButtonStyles.primary;
@@ -95,7 +102,16 @@ const Button: React.FC<ButtonProps> = ({
           size="small"
         />
       ) : (
-        <Text style={[getTextStyle(), textStyle]}>{title}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          {leftIcon && (
+            <IconSymbol
+              name={leftIcon as any} // Cast to any
+              size={18}
+              color={leftIconColor ?? getTextStyle().color ?? Colors.light.text} // Added fallback color
+            />
+          )}
+          <Text style={[getTextStyle(), textStyle]}>{title}</Text>
+        </View>
       )}
     </TouchableOpacity>
   );

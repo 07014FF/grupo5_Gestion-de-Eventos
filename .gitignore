@@ -33,6 +33,9 @@ yarn-error.*
 # local env files
 .env*.local
 
+# MCP settings (contiene credenciales)
+.claude/mcp_settings.json
+
 # typescript
 *.tsbuildinfo
 

@@ -5,7 +5,11 @@
       "Bash(npx expo start:*)",
       "Bash(npx expo lint:*)",
       "Bash(npm install:*)",
-      "Bash(npm run start:*)"
+      "Bash(npm run start:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm start)",
+      "Bash(rm:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
