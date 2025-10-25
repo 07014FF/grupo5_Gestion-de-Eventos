@@ -9,7 +9,8 @@
       "Bash(npx tsc:*)",
       "Bash(npm start)",
       "Bash(rm:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
