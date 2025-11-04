@@ -1,17 +1,27 @@
 import { Stack } from 'expo-router';
+import { useMemo } from 'react';
+
+import { useThemeColors } from '@/hooks/useThemeColors';
 
 export default function AdminLayout() {
+  const palette = useThemeColors();
+  const headerStyle = useMemo(
+    () => ({
+      headerStyle: {
+        backgroundColor: palette.background,
+      },
+      headerTintColor: palette.text,
+      headerTitleStyle: {
+        fontWeight: 'bold' as const,
+        color: palette.text,
+      },
+    }),
+    [palette],
+  );
+
   return (
     <Stack
-      screenOptions={{
-        headerStyle: {
-          backgroundColor: '#1A1A1A',
-        },
-        headerTintColor: '#fff',
-        headerTitleStyle: {
-          fontWeight: 'bold',
-        },
-      }}
+      screenOptions={headerStyle}
     >
       <Stack.Screen
         name="dashboard"
@@ -27,13 +37,7 @@ export default function AdminLayout() {
           presentation: 'modal',
         }}
       />
-      <Stack.Screen
-        name="edit-event"
-        options={{
-          title: 'Editar Evento',
-          presentation: 'modal',
-        }}
-      />
+
     </Stack>
   );
 }

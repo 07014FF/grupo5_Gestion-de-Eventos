@@ -1,21 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  SafeAreaView,
-  StatusBar,
-  TouchableOpacity,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { CameraView, Camera } from 'expo-camera';
 import { Button } from '@/components/ui';
-import { Colors, FontSizes, Spacing, BorderRadius, Shadows } from '@/constants/theme';
+import { BorderRadius, Colors, FontSizes, Shadows, Spacing } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
 import { QRService } from '@/services/qr.service';
 import { TicketServiceSupabase } from '@/services/ticket.service.supabase';
-import { useAuth } from '@/context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
+import { Camera, CameraView } from 'expo-camera';
+import React, { useEffect, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Platform,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface ValidationInfo {
   isValid: boolean;
@@ -27,6 +28,7 @@ interface ValidationInfo {
 
 export default function QRScreen() {
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scannedData, setScannedData] = useState<string | null>(null);
@@ -170,8 +172,11 @@ export default function QRScreen() {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.dark.primary} />
-          <Text style={styles.loadingText}>Solicitando permisos de cámara...</Text>
+          <View style={styles.loadingIconContainer}>
+            <ActivityIndicator size="large" color={Colors.dark.primary} />
+          </View>
+          <Text style={styles.loadingTitle}>Solicitando permisos</Text>
+          <Text style={styles.loadingSubtitle}>Necesitamos acceso a tu cámara</Text>
         </View>
       </SafeAreaView>
     );
@@ -180,8 +185,10 @@ export default function QRScreen() {
   if (hasPermission === false) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <Ionicons name="camera-outline" size={64} color={Colors.dark.textSecondary} />
+        <View style={styles.emptyContainer}>
+          <View style={styles.emptyIconContainer}>
+            <Ionicons name="camera-outline" size={64} color={Colors.dark.primary} />
+          </View>
           <Text style={styles.emptyTitle}>Sin acceso a la cámara</Text>
           <Text style={styles.emptySubtitle}>
             Por favor, habilita los permisos de cámara en la configuración de tu dispositivo.
@@ -302,7 +309,7 @@ export default function QRScreen() {
       )}
 
       {/* Controls */}
-      <View style={styles.controls}>
+      <View style={[styles.controls, { paddingBottom: Platform.OS === 'ios' ? insets.bottom + Spacing.md : Spacing.md }]}>
         {!isScanning ? (
           <Button
             title="Comenzar Escaneo"
@@ -323,7 +330,7 @@ export default function QRScreen() {
       </View>
 
       {/* Instructions */}
-      <View style={styles.instructions}>
+      <View style={[styles.instructions, { paddingBottom: Platform.OS === 'ios' ? 100 + insets.bottom : 90 }]}>
         <Text style={styles.instructionsTitle}>Instrucciones:</Text>
         <View style={styles.instructionItem}>
           <Ionicons name="information-circle-outline" size={16} color={Colors.dark.primary} />
@@ -378,23 +385,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: Spacing.xl,
   },
-  loadingText: {
-    fontSize: FontSizes.md,
-    color: Colors.dark.textSecondary,
-    marginTop: Spacing.md,
+  loadingIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(0, 208, 132, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
   },
-  emptyTitle: {
-    fontSize: FontSizes.xl,
+  loadingTitle: {
+    fontSize: FontSizes.lg,
     fontWeight: '700',
     color: Colors.dark.text,
-    marginTop: Spacing.lg,
+    marginBottom: Spacing.xs,
+  },
+  loadingSubtitle: {
+    fontSize: FontSizes.md,
+    color: Colors.dark.textSecondary,
+    lineHeight: 20,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.xxxl * 2,
+  },
+  emptyIconContainer: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: 'rgba(0, 208, 132, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
+  },
+  emptyTitle: {
+    fontSize: FontSizes.xxl,
+    fontWeight: '800',
+    color: Colors.dark.text,
     marginBottom: Spacing.sm,
   },
   emptySubtitle: {
     fontSize: FontSizes.md,
     color: Colors.dark.textSecondary,
     textAlign: 'center',
-    lineHeight: 22,
+    lineHeight: 24,
+    maxWidth: 300,
   },
   scannerContainer: {
     flex: 1,
@@ -420,14 +458,17 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xl,
   },
   scannerPlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
   },
   placeholderText: {
-    fontSize: FontSizes.sm,
+    fontSize: FontSizes.md,
     color: Colors.dark.textSecondary,
     textAlign: 'center',
-    marginTop: Spacing.md,
-    paddingHorizontal: Spacing.lg,
+    marginTop: Spacing.lg,
+    lineHeight: 22,
   },
   scannerFrame: {
     width: 250,
@@ -467,10 +508,10 @@ const styles = StyleSheet.create({
     margin: Spacing.lg,
     padding: Spacing.lg,
     backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: Colors.dark.success,
-    ...Shadows.sm,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 2,
+    ...Shadows.md,
+    elevation: 4,
   },
   resultHeader: {
     flexDirection: 'row',
@@ -515,14 +556,17 @@ const styles = StyleSheet.create({
   },
   controls: {
     paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.lg,
   },
   scanButton: {
     paddingVertical: Spacing.md,
+    ...Shadows.lg,
+    shadowColor: Colors.dark.primary,
+    shadowOpacity: 0.3,
+    elevation: 6,
   },
   instructions: {
     paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.lg,
+    paddingTop: Spacing.md,
   },
   instructionsTitle: {
     fontSize: FontSizes.md,

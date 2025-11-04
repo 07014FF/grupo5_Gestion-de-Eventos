@@ -1,11 +1,11 @@
 import { BottomTabBarButtonProps } from '@react-navigation/bottom-tabs';
 import { PlatformPressable } from '@react-navigation/elements';
 import * as Haptics from 'expo-haptics';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
 
 export function HapticTab(props: BottomTabBarButtonProps) {
-  const scaleValue = new Animated.Value(1);
+  const scaleValue = useRef(new Animated.Value(1)).current;
 
   // Animar cuando el tab está activo
   useEffect(() => {
@@ -22,7 +22,7 @@ export function HapticTab(props: BottomTabBarButtonProps) {
         useNativeDriver: true,
       }).start();
     }
-  }, [props.accessibilityState?.selected]);
+  }, [props.accessibilityState?.selected, scaleValue]);
 
   return (
     <View style={styles.container}>

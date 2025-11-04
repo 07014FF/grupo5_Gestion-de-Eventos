@@ -3,10 +3,10 @@ import { BorderRadius, Colors, FontSizes, Shadows, Spacing } from '@/constants/t
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   Alert,
   Dimensions,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
@@ -43,10 +43,10 @@ const QR_DATA: ValidationResult = {
   eventTitle: 'Festival de Jazz 2024',
   eventDate: '2024-03-15',
   eventTime: '19:30',
-  location: 'Centro Cultural - Bogotá',
+  location: 'Centro Cultural - Lima',
   ticketType: 'General',
   seatNumber: 'A-15',
-  price: '$45.000',
+  price: 'S/ 45.00',
   purchaseDate: '2024-03-10',
   status: 'valid', // valid, used, expired, invalid
 };

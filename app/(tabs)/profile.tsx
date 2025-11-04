@@ -1,21 +1,28 @@
 import { BorderRadius, Colors, FontSizes, Shadows, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { useTheme } from '@/context/ThemeContext';
+import { useThemeColors } from '@/hooks/useThemeColors';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React from 'react';
 import {
-  SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  Platform,
+  Switch,
 } from 'react-native';
+import { useSafeAreaInsets, SafeAreaView } from 'react-native-safe-area-context';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { isDark, toggleTheme } = useTheme();
+  const colors = useThemeColors();
 
   // Debug: Ver qué rol tiene el usuario
   React.useEffect(() => {
@@ -49,39 +56,48 @@ export default function ProfileScreen() {
       title: 'Editar Perfil',
       icon: 'create-outline',
       onPress: handleEditProfile,
+      isToggle: false,
     },
     {
-      id: 'preferences',
-      title: 'Preferencias',
-      icon: 'settings-outline',
-      onPress: () => console.log('Preferences'),
+      id: 'theme',
+      title: 'Modo Oscuro',
+      icon: isDark ? 'moon' : 'sunny',
+      onPress: toggleTheme,
+      isToggle: true,
+      toggleValue: isDark,
     },
     {
       id: 'notifications',
       title: 'Notificaciones',
       icon: 'notifications-outline',
       onPress: () => console.log('Notifications'),
+      isToggle: false,
     },
     {
       id: 'payment',
       title: 'Métodos de Pago',
       icon: 'card-outline',
       onPress: () => console.log('Payment'),
+      isToggle: false,
     },
     {
       id: 'help',
       title: 'Ayuda y Soporte',
       icon: 'help-circle-outline',
       onPress: () => console.log('Help'),
+      isToggle: false,
     },
   ];
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor={Colors.dark.background} barStyle="light-content" />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar backgroundColor={colors.background} barStyle={isDark ? "light-content" : "dark-content"} />
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: Platform.OS === 'ios' ? 100 + insets.bottom : 90 }
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* User Profile Header */}
@@ -95,6 +111,8 @@ export default function ProfileScreen() {
               style={styles.editPhotoButton}
               onPress={handleChangePhoto}
               activeOpacity={0.8}
+              accessibilityLabel="Cambiar foto de perfil"
+              accessibilityRole="button"
             >
               <Ionicons name="camera" size={18} color="#FFFFFF" />
             </TouchableOpacity>
@@ -137,6 +155,8 @@ export default function ProfileScreen() {
               style={styles.editButton}
               onPress={handleEditProfile}
               activeOpacity={0.8}
+              accessibilityLabel="Editar perfil"
+              accessibilityRole="button"
             >
               <Ionicons name="create-outline" size={16} color={Colors.dark.primary} />
               <Text style={styles.editButtonText}>Editar Perfil</Text>
@@ -146,6 +166,8 @@ export default function ProfileScreen() {
               style={styles.loginButton}
               onPress={() => router.push('/login-modal')}
               activeOpacity={0.8}
+              accessibilityLabel="Iniciar sesión"
+              accessibilityRole="button"
             >
               <Ionicons name="log-in-outline" size={18} color="#FFFFFF" />
               <Text style={styles.loginButtonText}>Iniciar Sesión</Text>
@@ -160,6 +182,9 @@ export default function ProfileScreen() {
               style={styles.adminButton}
               onPress={() => router.push('/admin/dashboard')}
               activeOpacity={0.8}
+              accessibilityLabel="Abrir panel de administración"
+              accessibilityHint="Gestiona eventos y ventas"
+              accessibilityRole="button"
             >
               <View style={styles.adminButtonContent}>
                 <Ionicons name="shield-checkmark" size={24} color="#FFFFFF" />
@@ -183,22 +208,34 @@ export default function ProfileScreen() {
               style={styles.optionItem}
               onPress={option.onPress}
               activeOpacity={0.7}
+              accessibilityLabel={option.title}
+              accessibilityRole="button"
             >
               <View style={styles.optionLeft}>
                 <View style={styles.iconContainer}>
                   <Ionicons
                     name={option.icon as any}
                     size={22}
-                    color={Colors.dark.primary}
+                    color={colors.primary}
                   />
                 </View>
-                <Text style={styles.optionTitle}>{option.title}</Text>
+                <Text style={[styles.optionTitle, { color: colors.text }]}>{option.title}</Text>
               </View>
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={Colors.dark.textSecondary}
-              />
+              {option.isToggle ? (
+                <Switch
+                  value={option.toggleValue}
+                  onValueChange={option.onPress}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor={colors.textLight}
+                  ios_backgroundColor={colors.border}
+                />
+              ) : (
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={colors.textSecondary}
+                />
+              )}
             </TouchableOpacity>
           ))}
         </View>
@@ -212,6 +249,8 @@ export default function ProfileScreen() {
                 style={styles.logoutButton}
                 onPress={handleLogout}
                 activeOpacity={0.8}
+                accessibilityLabel="Cerrar sesión"
+                accessibilityRole="button"
               >
                 <Ionicons name="log-out-outline" size={24} color={Colors.dark.error} />
                 <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
@@ -240,7 +279,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.dark.background,
   },
   scrollContent: {
-    paddingBottom: 100, // Asegurar espacio para el botón de logout
+    // paddingBottom dinámico aplicado inline
   },
   profileHeader: {
     alignItems: 'center',
@@ -354,7 +393,9 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.lg,
     marginTop: Spacing.md,
     backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 208, 132, 0.1)',
     ...Shadows.sm,
   },
   optionItem: {
@@ -400,13 +441,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.sm,
-    paddingVertical: 16, // Más grande para ser visible
+    paddingVertical: 16,
     paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: '#FF3B30', // Rojo más visible
-    borderWidth: 2,
-    borderColor: '#FF3B30',
+    borderRadius: BorderRadius.xl,
+    backgroundColor: Colors.dark.error,
     ...Shadows.md,
+    shadowColor: Colors.dark.error,
+    shadowOpacity: 0.3,
+    elevation: 4,
   },
   logoutButtonText: {
     fontSize: FontSizes.lg, // Más grande
@@ -431,9 +473,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: Spacing.lg,
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     backgroundColor: Colors.dark.primary,
     ...Shadows.lg,
+    shadowColor: Colors.dark.primary,
+    shadowOpacity: 0.3,
+    elevation: 6,
   },
   adminButtonContent: {
     flexDirection: 'row',

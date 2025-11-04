@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSizes, Spacing, BorderRadius, Shadows } from '@/constants/theme';
+import { useTheme } from '@/context/ThemeContext';
+import { useThemeColors } from '@/hooks/useThemeColors';
 
 interface CardProps {
   title: string;
@@ -27,6 +29,8 @@ interface CardProps {
   children?: React.ReactNode;
   variant?: 'default' | 'netflix' | 'hero';
   actions?: CardAction[];
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
 }
 
 interface CardAction {
@@ -51,33 +55,50 @@ const Card: React.FC<CardProps> = ({
   children,
   variant = 'default',
   actions,
+  accessibilityLabel,
+  accessibilityHint,
 }) => {
+  const { isDark } = useTheme();
+  const palette = useThemeColors();
+  const styles = useMemo(() => createStyles(palette, isDark), [palette, isDark]);
+  // Build accessibility label
+  const buildAccessibilityLabel = () => {
+    if (accessibilityLabel) return accessibilityLabel;
+
+    let label = title;
+    if (subtitle) label += `, ${subtitle}`;
+    if (price) label += `, Precio: ${price}`;
+    if (status) label += `, ${getStatusVisuals().label}`;
+    if (rating) label += `, Calificación: ${rating} estrellas`;
+
+    return label;
+  };
   const getStatusVisuals = () => {
     switch (status) {
       case 'available':
         return {
-          chipColor: Colors.light.success,
+          chipColor: palette.success,
           chipBackground: 'rgba(16, 185, 129, 0.12)',
           icon: 'checkmark-circle' as const,
           label: 'Disponible',
         };
       case 'soldOut':
         return {
-          chipColor: Colors.light.error,
+          chipColor: palette.error,
           chipBackground: 'rgba(239, 68, 68, 0.12)',
           icon: 'close-circle' as const,
           label: 'Agotado',
         };
       case 'pending':
         return {
-          chipColor: Colors.light.warning,
+          chipColor: palette.warning,
           chipBackground: 'rgba(245, 158, 11, 0.12)',
           icon: 'time-outline',
           label: 'Pendiente',
         };
       default:
         return {
-          chipColor: Colors.light.success,
+          chipColor: palette.success,
           chipBackground: 'rgba(16, 185, 129, 0.12)',
           icon: 'checkmark-circle' as const,
           label: 'Disponible',
@@ -150,7 +171,7 @@ const Card: React.FC<CardProps> = ({
           </View>
         ) : (
           <View style={[styles.thumbnailWrapper, styles.thumbnailPlaceholder]}>
-            <Ionicons name="image-outline" size={28} color={Colors.light.textMuted} />
+            <Ionicons name="image-outline" size={28} color={palette.textMuted} />
           </View>
         )}
 
@@ -202,7 +223,7 @@ const Card: React.FC<CardProps> = ({
               )}
               {!imageUrl && category && (
                 <View style={styles.metaItem}>
-                  <Ionicons name="albums-outline" size={14} color={Colors.light.primary} />
+                  <Ionicons name="albums-outline" size={14} color={palette.primary} />
                   <Text style={styles.metaText}>{category}</Text>
                 </View>
               )}
@@ -228,11 +249,13 @@ const Card: React.FC<CardProps> = ({
                       isPrimary && styles.actionButtonPrimary,
                     ]}
                     activeOpacity={0.85}
+                    accessibilityLabel={action.label || action.icon}
+                    accessibilityRole="button"
                   >
                     <Ionicons
                       name={action.icon}
                       size={18}
-                      color={isPrimary ? Colors.light.textLight : Colors.light.icon}
+                      color={isPrimary ? palette.textLight : palette.icon}
                     />
                     {action.label && (
                       <Text
@@ -256,7 +279,13 @@ const Card: React.FC<CardProps> = ({
 
   if (onPress) {
     return (
-      <TouchableOpacity onPress={onPress} activeOpacity={0.8}>
+      <TouchableOpacity
+        onPress={onPress}
+        activeOpacity={0.8}
+        accessibilityLabel={buildAccessibilityLabel()}
+        accessibilityHint={accessibilityHint || 'Toca para ver más detalles'}
+        accessibilityRole="button"
+      >
         <CardContent />
       </TouchableOpacity>
     );
@@ -265,11 +294,12 @@ const Card: React.FC<CardProps> = ({
   return <CardContent />;
 };
 
-const styles = StyleSheet.create({
+const createStyles = (palette: typeof Colors.dark, isDark: boolean) =>
+  StyleSheet.create({
   card: {
     flexDirection: 'row',
     gap: Spacing.lg,
-    backgroundColor: Colors.light.surface,
+    backgroundColor: palette.surface,
     borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
@@ -281,7 +311,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     overflow: 'hidden',
     position: 'relative',
-    backgroundColor: Colors.light.backgroundSecondary,
+    backgroundColor: palette.backgroundSecondary,
     ...Shadows.sm,
   },
   thumbnail: {
@@ -304,12 +334,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FontSizes.lg,
     fontWeight: '700',
-    color: Colors.light.text,
+    color: palette.text,
     marginBottom: Spacing.xs / 2,
   },
   subtitle: {
     fontSize: FontSizes.sm,
-    color: Colors.light.textSecondary,
+    color: palette.textSecondary,
   },
   statusBadge: {
     flexDirection: 'row',
@@ -327,7 +357,7 @@ const styles = StyleSheet.create({
   },
   description: {
     fontSize: FontSizes.md,
-    color: Colors.light.textSecondary,
+    color: palette.textSecondary,
     lineHeight: 20,
     marginBottom: Spacing.sm,
   },
@@ -343,16 +373,16 @@ const styles = StyleSheet.create({
   },
   metaText: {
     fontSize: FontSizes.sm,
-    color: Colors.light.textSecondary,
+    color: palette.textSecondary,
   },
   metaTextStrong: {
     fontWeight: '700',
-    color: Colors.light.text,
+    color: palette.text,
   },
   price: {
     fontSize: FontSizes.xl,
     fontWeight: '700',
-    color: Colors.light.primary,
+    color: palette.primary,
     marginTop: Spacing.xs,
   },
   actionsRow: {
@@ -368,18 +398,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.round,
-    backgroundColor: Colors.light.surfaceElevated,
+    backgroundColor: palette.surfaceElevated,
   },
   actionButtonPrimary: {
-    backgroundColor: Colors.light.primary,
+    backgroundColor: palette.primary,
   },
   actionLabel: {
     fontSize: FontSizes.sm,
-    color: Colors.light.icon,
+    color: palette.icon,
     fontWeight: '600',
   },
   actionLabelPrimary: {
-    color: Colors.light.textLight,
+    color: palette.textLight,
   },
   categoryPill: {
     position: 'absolute',
@@ -392,7 +422,7 @@ const styles = StyleSheet.create({
   },
   categoryPillText: {
     fontSize: FontSizes.xs,
-    color: Colors.light.textLight,
+    color: palette.textLight,
     fontWeight: '600',
   },
   thumbnailPlaceholder: {
@@ -436,13 +466,13 @@ const styles = StyleSheet.create({
   netflixTitle: {
     fontSize: FontSizes.xl,
     fontWeight: '800',
-    color: Colors.light.textLight,
+    color: palette.textLight,
     marginBottom: Spacing.xs / 2,
     lineHeight: 24,
   },
   netflixSubtitle: {
     fontSize: FontSizes.md,
-    color: Colors.light.textLight,
+    color: palette.textLight,
     opacity: 0.9,
     marginBottom: Spacing.sm,
   },
@@ -452,13 +482,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   categoryBadge: {
-    backgroundColor: Colors.light.primary,
+    backgroundColor: palette.primary,
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs / 2,
     borderRadius: BorderRadius.sm,
   },
   categoryText: {
-    color: Colors.light.textLight,
+    color: palette.textLight,
     fontSize: FontSizes.xs,
     fontWeight: '700',
   },
@@ -468,15 +498,15 @@ const styles = StyleSheet.create({
   netflixPrice: {
     fontSize: FontSizes.xl,
     fontWeight: '800',
-    color: Colors.light.textLight,
+    color: palette.textLight,
   },
   originalPrice: {
     fontSize: FontSizes.sm,
-    color: Colors.light.textLight,
+    color: palette.textLight,
     opacity: 0.7,
     textDecorationLine: 'line-through',
     marginBottom: Spacing.xs / 2,
   },
-});
+  });
 
 export default Card;

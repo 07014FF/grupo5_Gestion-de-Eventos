@@ -18,12 +18,14 @@ export enum PaymentStatus {
 }
 
 export type PaymentMethod =
-  | 'card'
-  | 'pse'
-  | 'nequi'
-  | 'daviplata'
-  | 'cash'
-  | 'bank_transfer';
+  | 'card'      // Tarjeta de Crédito/Débito
+  | 'yape'      // Yape (Perú)
+  | 'plin'      // Plin (Perú)
+  | 'pse'       // PSE (Colombia) - legacy
+  | 'nequi'     // Nequi (Colombia) - legacy
+  | 'daviplata' // Daviplata (Colombia) - legacy
+  | 'cash'      // Efectivo
+  | 'bank_transfer'; // Transferencia bancaria
 
 export interface Event {
   id: string;
@@ -35,7 +37,9 @@ export interface Event {
   time: string;
   location: string;
   venue?: string;
-  price: number;
+  price: number; // Precio general (mantener por compatibilidad)
+  studentPrice?: number; // Precio para estudiantes (S/ 0.00)
+  generalPrice?: number; // Precio para público general (S/ 5.00)
   availableTickets: number;
   category?: string;
   rating?: number;

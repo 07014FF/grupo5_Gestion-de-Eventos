@@ -1,12 +1,13 @@
 import { Button } from '@/components/ui';
 import { BorderRadius, Colors, FontSizes, Spacing } from '@/constants/theme';
+import { useTheme } from '@/context/ThemeContext';
+import { useThemeColors } from '@/hooks/useThemeColors';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
     Dimensions,
     ImageBackground,
-    SafeAreaView,
     ScrollView,
     StatusBar,
     StyleSheet,
@@ -14,6 +15,11 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ShareService } from '@/services/share.service';
+import { eventDetailParamsSchema, type EventDetailParams, type PurchaseParams } from '@/types/navigation.types';
+import { Event } from '@/types/ticket.types';
+import { normalizeSearchParams, parsePrice } from '@/utils/navigation';
 
 // Opciones de la pantalla
 export const options = {
@@ -22,21 +28,57 @@ export const options = {
 
 const { height } = Dimensions.get('window');
 
+const FALLBACK_EVENT_PARAMS: EventDetailParams = {
+  eventId: 'fallback',
+  eventTitle: 'Evento',
+  eventDate: '',
+  eventTime: '',
+  eventLocation: '',
+  ticketPrice: '0',
+  eventDescription: '',
+  eventCategory: '',
+  eventImageUrl: '',
+};
+
 export default function EventDetailScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
+  const params = useLocalSearchParams<Record<string, string | string[]>>();
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState<'about' | 'participants'>('about');
+  const { isDark } = useTheme();
+  const palette = useThemeColors();
+  const styles = useMemo(() => createStyles(palette, isDark), [palette, isDark]);
 
-  // Extract event data from params
-  const eventId = Array.isArray(params.eventId) ? params.eventId[0] : params.eventId || '1';
-  const eventTitle = Array.isArray(params.eventTitle) ? params.eventTitle[0] : params.eventTitle || 'Event';
-  const eventDate = Array.isArray(params.eventDate) ? params.eventDate[0] : params.eventDate || '';
-  const eventTime = Array.isArray(params.eventTime) ? params.eventTime[0] : params.eventTime || '';
-  const eventLocation = Array.isArray(params.eventLocation) ? params.eventLocation[0] : params.eventLocation || '';
-  const ticketPrice = Array.isArray(params.ticketPrice) ? params.ticketPrice[0] : params.ticketPrice || '0';
-  const eventDescription = Array.isArray(params.eventDescription) ? params.eventDescription[0] : params.eventDescription;
-  const eventCategory = Array.isArray(params.eventCategory) ? params.eventCategory[0] : params.eventCategory;
-  const eventImageUrl = Array.isArray(params.eventImageUrl) ? params.eventImageUrl[0] : params.eventImageUrl;
+  const eventParams = useMemo<EventDetailParams>(() => {
+    const normalized = normalizeSearchParams(params);
+    const result = eventDetailParamsSchema.safeParse(normalized);
+
+    if (!result.success) {
+      console.error('Parámetros inválidos para el detalle del evento', result.error.flatten().fieldErrors);
+      return FALLBACK_EVENT_PARAMS;
+    }
+
+    return result.data;
+  }, [params]);
+
+  const ticketPriceValue = useMemo(
+    () => parsePrice(eventParams.ticketPrice),
+    [eventParams.ticketPrice]
+  );
+
+  const purchaseParams = useMemo<PurchaseParams>(
+    () => ({
+      eventId: eventParams.eventId,
+      eventTitle: eventParams.eventTitle,
+      eventDate: eventParams.eventDate,
+      eventTime: eventParams.eventTime,
+      eventLocation: eventParams.eventLocation,
+      ticketPrice: eventParams.ticketPrice,
+      ticketType: 'general',
+      quantity: '1',
+    }),
+    [eventParams]
+  );
 
   // Format date for display (assuming format like "2024-12-25")
   const formatDate = (dateStr: string) => {
@@ -47,7 +89,7 @@ export default function EventDetailScreen() {
     return { month, day };
   };
 
-  const { month, day } = formatDate(eventDate);
+  const { month, day } = formatDate(eventParams.eventDate);
 
   const handleGoBack = () => {
     router.back();
@@ -56,38 +98,54 @@ export default function EventDetailScreen() {
   const handlePurchase = () => {
     router.push({
       pathname: '/purchase',
-      params: {
-        eventId,
-        eventTitle,
-        eventDate,
-        eventTime,
-        eventLocation,
-        ticketPrice,
-      }
+      params: purchaseParams,
     });
   };
 
   const handleBookmark = () => {
-    // Implementar lógica de favoritos
+    // TODO: Implementar lógica de favoritos con AsyncStorage
+    console.log('Agregar a favoritos:', eventParams.eventId);
   };
 
-  const handleShare = () => {
-    // Implementar lógica de compartir
+  const handleShare = async () => {
+    const event: Event = {
+      id: eventParams.eventId,
+      title: eventParams.eventTitle,
+      date: eventParams.eventDate,
+      time: eventParams.eventTime,
+      location: eventParams.eventLocation,
+      venue: eventParams.eventLocation || undefined,
+      price: ticketPriceValue,
+      description: eventParams.eventDescription || undefined,
+      category: eventParams.eventCategory || undefined,
+      imageUrl: eventParams.eventImageUrl || undefined,
+      availableTickets: 0,
+      studentPrice: 0,
+      generalPrice: ticketPriceValue,
+    };
+
+    await ShareService.shareEvent(event);
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor="transparent" barStyle="light-content" translucent />
+    <View style={styles.container}>
+      <StatusBar
+        backgroundColor="transparent"
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        translucent
+      />
 
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 100 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Hero Image with Overlay */}
         <ImageBackground
           source={{
-            uri: eventImageUrl || 'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800'
+            uri:
+              eventParams.eventImageUrl ||
+              'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800',
           }}
           style={styles.heroImage}
           imageStyle={styles.heroImageStyle}
@@ -96,7 +154,7 @@ export default function EventDetailScreen() {
           <View style={styles.heroOverlay} />
 
           {/* Top Bar */}
-          <View style={styles.topBar}>
+          <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
             <TouchableOpacity style={styles.iconButton} onPress={handleGoBack}>
               <Ionicons name="arrow-back" size={24} color="#fff" />
             </TouchableOpacity>
@@ -113,18 +171,22 @@ export default function EventDetailScreen() {
           {/* Content Overlay */}
           <View style={styles.heroContent}>
             {/* Category Badge */}
-            {eventCategory && (
+            {eventParams.eventCategory && (
               <View style={styles.showBadge}>
-                <Text style={styles.showBadgeText}>{eventCategory.toUpperCase()}</Text>
+                <Text style={styles.showBadgeText}>
+                  {eventParams.eventCategory.toUpperCase()}
+                </Text>
               </View>
             )}
 
             {/* Title */}
-            <Text style={styles.heroTitle}>{eventTitle}</Text>
+            <Text style={styles.heroTitle}>{eventParams.eventTitle}</Text>
 
             {/* Start Time */}
             <Text style={styles.heroStartTime}>
-              {eventTime ? `${eventDate} • ${eventTime}` : eventDate}
+              {eventParams.eventTime
+                ? `${eventParams.eventDate} • ${eventParams.eventTime}`
+                : eventParams.eventDate}
             </Text>
           </View>
 
@@ -144,7 +206,7 @@ export default function EventDetailScreen() {
               onPress={() => setActiveTab('about')}
             >
               <Text style={[styles.tabText, activeTab === 'about' && styles.tabTextActive]}>
-                ABOUT
+                ACERCA DE
               </Text>
               {activeTab === 'about' && <View style={styles.tabIndicator} />}
             </TouchableOpacity>
@@ -153,7 +215,7 @@ export default function EventDetailScreen() {
               onPress={() => setActiveTab('participants')}
             >
               <Text style={[styles.tabText, activeTab === 'participants' && styles.tabTextActive]}>
-                PARTICIPANTS
+                PARTICIPANTES
               </Text>
               {activeTab === 'participants' && <View style={styles.tabIndicator} />}
             </TouchableOpacity>
@@ -164,20 +226,20 @@ export default function EventDetailScreen() {
             {activeTab === 'about' && (
               <>
                 <Text style={styles.description}>
-                  {eventDescription || 'Información del evento no disponible.'}
+                  {eventParams.eventDescription || 'Información del evento no disponible.'}
                 </Text>
 
                 {/* Location Section */}
                 <View style={styles.locationSection}>
-                  <Text style={styles.sectionTitle}>LOCATION</Text>
-                  {eventLocation ? (
+                  <Text style={styles.sectionTitle}>UBICACIÓN</Text>
+                  {eventParams.eventLocation ? (
                     <View style={styles.locationInfo}>
-                      <Ionicons name="location" size={20} color={Colors.dark.primary} />
-                      <Text style={styles.locationText}>{eventLocation}</Text>
+                      <Ionicons name="location" size={20} color={palette.primary} />
+                      <Text style={styles.locationText}>{eventParams.eventLocation}</Text>
                     </View>
                   ) : (
                     <View style={styles.locationPlaceholder}>
-                      <Ionicons name="location-outline" size={24} color={Colors.dark.textMuted} />
+                      <Ionicons name="location-outline" size={24} color={palette.textMuted} />
                       <Text style={styles.locationPlaceholderText}>Ubicación por confirmar</Text>
                     </View>
                   )}
@@ -187,7 +249,7 @@ export default function EventDetailScreen() {
 
             {activeTab === 'participants' && (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyStateText}>No participants yet</Text>
+                <Text style={styles.emptyStateText}>Aún no hay participantes</Text>
               </View>
             )}
           </View>
@@ -195,36 +257,37 @@ export default function EventDetailScreen() {
       </ScrollView>
 
       {/* Bottom Purchase Bar */}
-      <View style={styles.bottomBar}>
+      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, Spacing.md) }]}>
         <View style={styles.priceContainer}>
-          <Text style={styles.priceLabel}>PRICE</Text>
+          <Text style={styles.priceLabel}>PRECIO</Text>
           <View style={styles.priceRow}>
-            <Text style={styles.price}>${parseFloat(ticketPrice).toLocaleString()}</Text>
-            <Text style={styles.priceUnit}>/person</Text>
+            <Text style={styles.price}>S/ {ticketPriceValue.toFixed(2)}</Text>
+            <Text style={styles.priceUnit}>/persona</Text>
           </View>
         </View>
 
         <Button
-          title="BUY A TICKET"
+          title="COMPRAR ENTRADA"
           variant="primary"
           onPress={handlePurchase}
           style={styles.buyButton}
         />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: typeof Colors.dark, isDark: boolean) =>
+  StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.dark.background, // Unified with Home
+    backgroundColor: palette.background, // Unified with Home
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 100,
+    // paddingBottom will be dynamic with insets
   },
   heroImage: {
     height: height * 0.5,
@@ -242,7 +305,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl + 16,
+    // paddingTop will be dynamic with insets
   },
   topBarRight: {
     flexDirection: 'row',
@@ -277,10 +340,14 @@ const styles = StyleSheet.create({
     letterSpacing: 1.5,
   },
   heroTitle: {
-    fontSize: 42,
+    fontSize: 38,
     fontWeight: '800',
     color: '#fff',
     marginBottom: Spacing.xs,
+    lineHeight: 44,
+    textShadowColor: 'rgba(0, 0, 0, 0.75)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
   },
   heroStartTime: {
     fontSize: FontSizes.sm,
@@ -292,7 +359,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: Spacing.xl + 60,
     right: Spacing.xl,
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: palette.primary,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.lg,
@@ -312,7 +379,7 @@ const styles = StyleSheet.create({
     lineHeight: 28,
   },
   contentSection: {
-    backgroundColor: Colors.dark.background,
+    backgroundColor: palette.background,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     marginTop: -24,
@@ -331,11 +398,11 @@ const styles = StyleSheet.create({
   tabText: {
     fontSize: FontSizes.sm,
     fontWeight: '700',
-    color: Colors.dark.textMuted,
+    color: palette.textMuted,
     letterSpacing: 1,
   },
   tabTextActive: {
-    color: Colors.dark.text,
+    color: palette.text,
   },
   tabIndicator: {
     position: 'absolute',
@@ -343,7 +410,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 2,
-    backgroundColor: Colors.dark.primary,
+    backgroundColor: palette.primary,
   },
   tabContent: {
     paddingHorizontal: Spacing.xl,
@@ -351,7 +418,7 @@ const styles = StyleSheet.create({
   },
   description: {
     fontSize: FontSizes.md,
-    color: Colors.dark.textSecondary,
+    color: palette.textSecondary,
     lineHeight: 24,
     marginBottom: Spacing.xl,
   },
@@ -361,7 +428,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: FontSizes.sm,
     fontWeight: '700',
-    color: Colors.dark.text,
+    color: palette.text,
     letterSpacing: 1.5,
     marginBottom: Spacing.md,
   },
@@ -370,18 +437,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: Spacing.sm,
     padding: Spacing.md,
-    backgroundColor: Colors.dark.surface,
+    backgroundColor: palette.surface,
     borderRadius: BorderRadius.lg,
   },
   locationText: {
     flex: 1,
     fontSize: FontSizes.md,
-    color: Colors.dark.textSecondary,
+    color: palette.textSecondary,
     fontWeight: '500',
   },
   locationPlaceholder: {
     height: 120,
-    backgroundColor: Colors.dark.surface,
+    backgroundColor: palette.surface,
     borderRadius: BorderRadius.lg,
     alignItems: 'center',
     justifyContent: 'center',
@@ -389,7 +456,7 @@ const styles = StyleSheet.create({
   },
   locationPlaceholderText: {
     fontSize: FontSizes.sm,
-    color: Colors.dark.textMuted,
+    color: palette.textMuted,
   },
   emptyState: {
     paddingVertical: Spacing.xxl,
@@ -397,17 +464,17 @@ const styles = StyleSheet.create({
   },
   emptyStateText: {
     fontSize: FontSizes.md,
-    color: Colors.dark.textMuted,
+    color: palette.textMuted,
   },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: Colors.dark.surface,
+    backgroundColor: palette.surface,
     paddingHorizontal: Spacing.xl,
-    paddingVertical: Spacing.lg,
-    paddingBottom: Spacing.xl,
+    paddingTop: Spacing.lg,
+    // paddingBottom will be dynamic with insets
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -420,7 +487,7 @@ const styles = StyleSheet.create({
   priceLabel: {
     fontSize: FontSizes.xs,
     fontWeight: '700',
-    color: Colors.dark.textMuted,
+    color: palette.textMuted,
     letterSpacing: 1,
     marginBottom: 4,
   },
@@ -431,16 +498,16 @@ const styles = StyleSheet.create({
   price: {
     fontSize: 28,
     fontWeight: '800',
-    color: Colors.dark.text,
+    color: palette.text,
   },
   priceUnit: {
     fontSize: FontSizes.sm,
-    color: Colors.dark.textSecondary,
+    color: palette.textSecondary,
     marginLeft: 4,
   },
   buyButton: {
     flex: 1.2,
-    backgroundColor: Colors.dark.buttonPrimary,
+    backgroundColor: palette.buttonPrimary,
     paddingVertical: Spacing.md + 2,
   },
 });

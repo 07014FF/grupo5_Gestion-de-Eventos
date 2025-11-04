@@ -30,8 +30,8 @@ export enum PaymentGateway {
 
 export interface PaymentIntent {
   id: string;
-  amount: number; // En centavos (ej: 45000 = $450.00)
-  currency: string; // 'COP', 'USD', etc.
+  amount: number; // En centavos (ej: 4500 = S/45.00)
+  currency: string; // 'PEN', 'USD', etc.
   paymentMethod: PaymentMethod;
   gateway: PaymentGateway;
   customerId?: string;
@@ -110,7 +110,7 @@ export class PaymentService {
       const paymentIntent: PaymentIntent = {
         id: this.generatePaymentId(),
         amount,
-        currency: 'COP', // Por defecto Colombia
+        currency: 'PEN', // Por defecto Perú
         paymentMethod,
         gateway: this.currentGateway,
         metadata,
@@ -183,7 +183,7 @@ export class PaymentService {
   /**
    * Process payment through Culqi (Perú)
    * Full integration with Culqi API
-   * Supports: Credit/Debit cards and Yape
+   * Supports: Credit/Debit cards, Yape, and Plin
    */
   private static async processCulqiPayment(
     intent: PaymentIntent
@@ -197,73 +197,137 @@ export class PaymentService {
         return this.processMockPayment(intent);
       }
 
-      console.log('🇵🇪 Processing Culqi payment...');
+      const paymentMethodLabel = this.getPaymentMethodName(intent.paymentMethod);
+      console.log(`🇵🇪 Processing Culqi payment with ${paymentMethodLabel}...`);
 
-      // Step 1: Create Token (from card data)
-      // En producción, esto se hace en el frontend con Culqi.js
-      // Por ahora simulamos que ya tenemos el token
+      // Determinar el tipo de pago según el método
+      const isYape = intent.paymentMethod === 'yape';
+      const isPlin = intent.paymentMethod === 'plin';
+      const isCard = intent.paymentMethod === 'card';
 
-      // Step 2: Create Charge
-      const chargePayload = {
-        amount: intent.amount, // En centavos (ej: 4500 = S/45.00)
-        currency_code: 'PEN', // Soles peruanos
-        email: intent.metadata.email || 'customer@example.com',
-        source_id: intent.metadata.culqiToken || 'DEMO_TOKEN', // Token de tarjeta/Yape
-        description: `Tickets para evento ${intent.metadata.eventId}`,
-        metadata: {
-          event_id: intent.metadata.eventId,
-          user_id: intent.metadata.userId,
-          quantity: intent.metadata.quantity,
-          payment_intent_id: intent.id,
-        },
-      };
+      // Step 1: Create Token o Order según el método de pago
+      // Para Yape/Plin: Se crea una Order (pago por QR)
+      // Para Tarjeta: Se crea un Token (tradicional)
 
-      const chargeResponse = await fetch('https://api.culqi.com/v2/charges', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${secretKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(chargePayload),
-      });
+      if (isYape || isPlin) {
+        // YAPE/PLIN: Crear Order para generar QR
+        const orderPayload = {
+          amount: intent.amount,
+          currency_code: 'PEN',
+          description: `Tickets para evento ${intent.metadata.eventTitle || intent.metadata.eventId}`,
+          order_number: intent.id,
+          client_details: {
+            first_name: intent.metadata.firstName || 'Cliente',
+            last_name: intent.metadata.lastName || 'Usuario',
+            email: intent.metadata.email || 'cliente@example.com',
+            phone_number: intent.metadata.phone || '+51999999999',
+          },
+          expiration_date: Math.floor(Date.now() / 1000) + 3600, // Expira en 1 hora
+          confirm: false, // El usuario confirma escaneando el QR
+        };
 
-      if (!chargeResponse.ok) {
-        const errorData = await chargeResponse.json();
-        throw new AppError(
-          ErrorCode.PAYMENT_FAILED,
-          'Culqi charge failed',
-          errorData.user_message || errorData.merchant_message || 'Error al procesar el pago con Culqi.'
-        );
+        const orderResponse = await fetch('https://api.culqi.com/v2/orders', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${secretKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(orderPayload),
+        });
+
+        if (!orderResponse.ok) {
+          const errorData = await orderResponse.json();
+          throw new AppError(
+            ErrorCode.PAYMENT_FAILED,
+            'Culqi order creation failed',
+            errorData.user_message || errorData.merchant_message || `Error al crear orden de pago con ${paymentMethodLabel}.`
+          );
+        }
+
+        const orderData = await orderResponse.json();
+        console.log('✅ Culqi order created:', orderData.id);
+
+        // La order contiene un payment_code que el usuario escanea con Yape/Plin
+        // En producción, mostrarías un QR con este código
+
+        return Ok({
+          success: false, // El pago aún no está completado
+          paymentId: intent.id,
+          status: PaymentStatus.PENDING,
+          transactionId: orderData.id,
+          metadata: {
+            culqiOrderId: orderData.id,
+            paymentCode: orderData.payment_code, // Código para QR
+            qrData: `https://api.culqi.com/v2/links/${orderData.id}`, // URL para generar QR
+            expiresAt: orderData.expiration_date,
+            method: paymentMethodLabel,
+            instructions: isYape
+              ? 'Abre tu app de Yape y escanea el código QR para completar el pago.'
+              : 'Abre tu app de Plin y escanea el código QR para completar el pago.',
+          },
+        });
+
+      } else {
+        // TARJETA: Flujo tradicional con Charge
+        const chargePayload = {
+          amount: intent.amount,
+          currency_code: 'PEN',
+          email: intent.metadata.email || 'customer@example.com',
+          source_id: intent.metadata.culqiToken || 'DEMO_TOKEN', // Token de tarjeta
+          description: `Tickets para evento ${intent.metadata.eventTitle || intent.metadata.eventId}`,
+          metadata: {
+            event_id: intent.metadata.eventId,
+            user_id: intent.metadata.userId,
+            quantity: intent.metadata.quantity,
+            payment_intent_id: intent.id,
+          },
+        };
+
+        const chargeResponse = await fetch('https://api.culqi.com/v2/charges', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${secretKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(chargePayload),
+        });
+
+        if (!chargeResponse.ok) {
+          const errorData = await chargeResponse.json();
+          throw new AppError(
+            ErrorCode.PAYMENT_FAILED,
+            'Culqi charge failed',
+            errorData.user_message || errorData.merchant_message || 'Error al procesar el pago con tarjeta.'
+          );
+        }
+
+        const chargeData = await chargeResponse.json();
+        console.log('✅ Culqi charge created:', chargeData.id);
+
+        // Map Culqi status to our PaymentStatus
+        let status = PaymentStatus.PENDING;
+
+        if (chargeData.outcome?.type === 'venta_exitosa') {
+          status = PaymentStatus.COMPLETED;
+        } else if (chargeData.outcome?.type === 'rechazada') {
+          status = PaymentStatus.FAILED;
+        }
+
+        return Ok({
+          success: status === PaymentStatus.COMPLETED,
+          paymentId: intent.id,
+          status,
+          transactionId: chargeData.id,
+          receiptUrl: `https://www.culqi.com/panel/#/comercio/movimientos/${chargeData.id}`,
+          metadata: {
+            culqiChargeId: chargeData.id,
+            culqiOutcome: chargeData.outcome,
+            culqiReference: chargeData.reference_code,
+            cardBrand: chargeData.source?.iin?.card_brand,
+            lastFour: chargeData.source?.iin?.last_four,
+          },
+        });
       }
-
-      const chargeData = await chargeResponse.json();
-
-      console.log('✅ Culqi charge created:', chargeData.id);
-
-      // Step 3: Map Culqi status to our PaymentStatus
-      // Culqi states: authorized, captured, rejected, etc.
-      let status = PaymentStatus.PENDING;
-
-      if (chargeData.outcome?.type === 'venta_exitosa') {
-        status = PaymentStatus.COMPLETED;
-      } else if (chargeData.outcome?.type === 'rechazada') {
-        status = PaymentStatus.FAILED;
-      }
-
-      return Ok({
-        success: status === PaymentStatus.COMPLETED,
-        paymentId: intent.id,
-        status,
-        transactionId: chargeData.id,
-        receiptUrl: `https://www.culqi.com/panel/#/comercio/movimientos/${chargeData.id}`,
-        metadata: {
-          culqiChargeId: chargeData.id,
-          culqiOutcome: chargeData.outcome,
-          culqiReference: chargeData.reference_code,
-          cardBrand: chargeData.source?.iin?.card_brand,
-          lastFour: chargeData.source?.iin?.last_four,
-        },
-      });
     } catch (error: any) {
       ErrorHandler.log(error, 'PaymentService.processCulqiPayment');
 
@@ -278,6 +342,97 @@ export class PaymentService {
           ErrorCode.PAYMENT_FAILED,
           'Culqi payment failed',
           errorMessage
+        )
+      );
+    }
+  }
+
+  /**
+   * Verify Yape/Plin payment status
+   * Polls the Culqi order to check if it was paid
+   */
+  static async verifyOrderPayment(
+    orderId: string
+  ): Promise<Result<PaymentResult>> {
+    try {
+      const secretKey = process.env.EXPO_PUBLIC_CULQI_SECRET_KEY;
+
+      const orderResponse = await fetch(`https://api.culqi.com/v2/orders/${orderId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${secretKey}`,
+        },
+      });
+
+      if (!orderResponse.ok) {
+        throw new AppError(
+          ErrorCode.PAYMENT_FAILED,
+          'Failed to verify order status'
+        );
+      }
+
+      const orderData = await orderResponse.json();
+
+      // Check if order was paid
+      const isPaid = orderData.state === 'paid';
+      const status = isPaid ? PaymentStatus.COMPLETED : PaymentStatus.PENDING;
+
+      return Ok({
+        success: isPaid,
+        paymentId: orderData.order_number,
+        status,
+        transactionId: orderData.id,
+        metadata: {
+          culqiOrderId: orderData.id,
+          state: orderData.state,
+          paidAt: orderData.paid_at,
+        },
+      });
+    } catch (error) {
+      ErrorHandler.log(error, 'PaymentService.verifyOrderPayment');
+      return Err(
+        new AppError(
+          ErrorCode.PAYMENT_FAILED,
+          'Failed to verify payment'
+        )
+      );
+    }
+  }
+
+  /**
+   * Process manual payment (Yape/Plin with personal QR)
+   * Creates a pending payment that requires admin verification
+   */
+  static async processManualPayment(
+    intent: PaymentIntent,
+    transactionRef: string
+  ): Promise<Result<PaymentResult>> {
+    try {
+      console.log('💜 Processing manual payment...');
+      console.log(`Method: ${intent.paymentMethod}, Ref: ${transactionRef}`);
+
+      // Create pending payment record
+      // This will be stored in the database and verified by admin
+
+      return Ok({
+        success: false, // Not completed yet
+        paymentId: intent.id,
+        status: PaymentStatus.PENDING,
+        transactionId: transactionRef,
+        metadata: {
+          method: intent.paymentMethod,
+          transactionRef,
+          requiresVerification: true,
+          createdAt: new Date().toISOString(),
+          instructions: 'Tu pago está siendo verificado. Recibirás una confirmación pronto.',
+        },
+      });
+    } catch (error) {
+      ErrorHandler.log(error, 'PaymentService.processManualPayment');
+      return Err(
+        new AppError(
+          ErrorCode.PAYMENT_FAILED,
+          'Failed to process manual payment'
         )
       );
     }
@@ -352,7 +507,7 @@ export class PaymentService {
       // Step 2: Create transaction
       const transactionPayload = {
         amount_in_cents: intent.amount, // Already in cents
-        currency: 'COP',
+        currency: 'PEN',
         customer_email: intent.metadata.email || 'customer@example.com',
         payment_method: {
           type: this.mapPaymentMethodToWompi(intent.paymentMethod),
@@ -361,7 +516,7 @@ export class PaymentService {
         reference: intent.id,
         acceptance_token: acceptanceToken,
         customer_data: {
-          phone_number: intent.metadata.phone || '3001234567',
+          phone_number: intent.metadata.phone || '9001234567',
           full_name: intent.metadata.name || 'Usuario',
         },
         redirect_url: 'myapp://payment-result', // Deep link para volver a la app
@@ -430,6 +585,8 @@ export class PaymentService {
   private static mapPaymentMethodToWompi(method: PaymentMethod): string {
     const mapping: Record<PaymentMethod, string> = {
       card: 'CARD',
+      yape: 'CARD', // Yape se procesa como tarjeta
+      plin: 'CARD', // Plin se procesa como tarjeta
       pse: 'PSE',
       nequi: 'NEQUI',
       daviplata: 'BANCOLOMBIA_TRANSFER',
@@ -653,6 +810,8 @@ export class PaymentService {
   static getPaymentMethodName(method: PaymentMethod): string {
     const names: Record<PaymentMethod, string> = {
       card: 'Tarjeta de Crédito/Débito',
+      yape: 'Yape',
+      plin: 'Plin',
       pse: 'PSE',
       nequi: 'Nequi',
       daviplata: 'Daviplata',

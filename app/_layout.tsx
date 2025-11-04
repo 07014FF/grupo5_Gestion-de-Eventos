@@ -1,18 +1,20 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { Colors } from '@/constants/theme';
 import { AuthProvider } from '@/context/AuthContext';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { ThemeProvider, useTheme } from '@/context/ThemeContext';
 
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
+function AppContent() {
+  const { isDark } = useTheme();
 
   // Custom theme based on your Colors configuration
   const customLightTheme = {
@@ -40,23 +42,38 @@ export default function RootLayout() {
   };
 
   return (
-    <AuthProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? customDarkTheme : customLightTheme}>
-        <Stack
-          screenOptions={{
-            headerShown: false,
-          }}
-        >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal', headerShown: false }} />
-          <Stack.Screen name="login-modal" options={{ presentation: 'modal', headerShown: false }} />
-          <Stack.Screen name="event-detail" options={{ headerShown: false }} />
-          <Stack.Screen name="purchase" options={{ headerShown: false }} />
-          <Stack.Screen name="qr-validation" options={{ headerShown: false }} />
-          <Stack.Screen name="reports" options={{ headerShown: false }} />
-        </Stack>
-        <StatusBar style="auto" />
-      </ThemeProvider>
-    </AuthProvider>
+    <NavThemeProvider value={isDark ? customDarkTheme : customLightTheme}>
+            <Stack
+              screenOptions={{
+                headerShown: false,
+              }}
+            >
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="modal" options={{ presentation: 'modal', headerShown: false }} />
+              <Stack.Screen name="login-modal" options={{ presentation: 'modal', headerShown: false }} />
+              <Stack.Screen name="forgot-password" options={{ presentation: 'modal', headerShown: false }} />
+              <Stack.Screen name="reset-password" options={{ presentation: 'modal', headerShown: false }} />
+              <Stack.Screen name="event-detail" options={{ headerShown: false }} />
+              <Stack.Screen name="purchase" options={{ headerShown: false }} />
+              <Stack.Screen name="qr-validation" options={{ headerShown: false }} />
+              <Stack.Screen name="reports" options={{ headerShown: false }} />
+              <Stack.Screen name="+not-found" />
+            </Stack>
+            <StatusBar style={isDark ? "light" : "dark"} />
+          </NavThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <SafeAreaProvider>
+      <ErrorBoundary>
+        <ThemeProvider>
+          <AuthProvider>
+            <AppContent />
+          </AuthProvider>
+        </ThemeProvider>
+      </ErrorBoundary>
+    </SafeAreaProvider>
   );
 }

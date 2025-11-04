@@ -1,6 +1,7 @@
 import { Link, Tabs } from 'expo-router';
 import React from 'react';
-import { Pressable } from 'react-native';
+import { Pressable, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { ThemedText } from '@/components/themed-text';
@@ -33,6 +34,7 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
@@ -45,18 +47,27 @@ export default function TabLayout() {
         headerShown: false,
         tabBarButton: HapticTab,
         headerRight: () => <AuthButton />,
-        // Configuración de la barra de navegación inferior con tema oscuro
+        // Configuración de la barra de navegación inferior con tema oscuro y safe areas
         tabBarStyle: {
           backgroundColor: '#2A2A2A',
           borderTopWidth: 1,
           borderTopColor: 'rgba(255, 255, 255, 0.1)',
-          height: 60,
-          paddingBottom: 8,
+          height: Platform.OS === 'ios' ? 65 + insets.bottom : 65,
+          paddingBottom: Platform.OS === 'ios' ? insets.bottom : 8,
           paddingTop: 8,
+          elevation: 8,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: -2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 8,
         },
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: '600',
+          marginTop: 4,
+        },
+        tabBarIconStyle: {
+          marginTop: 4,
         },
         // Animaciones suaves para transiciones entre tabs
         animation: 'shift',

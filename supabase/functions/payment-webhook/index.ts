@@ -79,14 +79,15 @@ serve(async (req) => {
 
       console.log(`📝 Processing transaction ${transaction.id} - Status: ${transaction.status}`);
 
-      // Map Wompi status to our PaymentStatus
-      let paymentStatus = 'pending';
+      // Map Wompi status to our PaymentStatus enum values
+      // Note: These strings must match the enum values in types/ticket.types.ts
+      let paymentStatus: 'pending' | 'completed' | 'failed' | 'refunded' = 'pending';
       if (transaction.status === 'APPROVED') {
         paymentStatus = 'completed';
       } else if (transaction.status === 'DECLINED' || transaction.status === 'ERROR') {
         paymentStatus = 'failed';
       } else if (transaction.status === 'VOIDED') {
-        paymentStatus = 'cancelled';
+        paymentStatus = 'refunded'; // Changed from 'cancelled' to 'refunded' to match enum
       }
 
       // Find purchase by payment intent ID (stored in payment_transaction_id or search by metadata)
@@ -153,8 +154,8 @@ serve(async (req) => {
         }
       }
 
-      // If payment failed, cancel tickets
-      if (paymentStatus === 'failed' || paymentStatus === 'cancelled') {
+      // If payment failed or refunded, cancel tickets
+      if (paymentStatus === 'failed' || paymentStatus === 'refunded') {
         const { error: ticketError } = await supabase
           .from('tickets')
           .update({ status: 'cancelled' })

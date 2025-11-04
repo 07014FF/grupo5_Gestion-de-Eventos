@@ -30,7 +30,7 @@ interface TicketQRModalProps {
   onClose: () => void;
 }
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 const QR_SIZE = Math.min(width * 0.7, 300);
 
 export function TicketQRModal({ visible, ticket, onClose }: TicketQRModalProps) {

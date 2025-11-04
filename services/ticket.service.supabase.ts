@@ -88,6 +88,10 @@ export class TicketServiceSupabase {
 
       const purchaseDate = new Date().toISOString();
 
+      // Determine payment status: pending for manual payments, completed for others
+      const isManualPayment = paymentResult?.gateway === 'manual';
+      const paymentStatus: PaymentStatus = isManualPayment ? PaymentStatus.PENDING : PaymentStatus.COMPLETED;
+
       // 1. Create purchase record
       const { data: purchaseData, error: purchaseError } = await supabase
         .from('purchases')
@@ -96,7 +100,7 @@ export class TicketServiceSupabase {
           event_id: event.id,
           total_amount: event.price * quantity,
           payment_method: paymentMethod,
-          payment_status: 'completed' as PaymentStatus, // Will be updated by webhook in production
+          payment_status: paymentStatus,
           user_name: userInfo.name,
           user_email: userInfo.email,
           user_phone: userInfo.phone,
@@ -106,7 +110,7 @@ export class TicketServiceSupabase {
           payment_transaction_id: paymentResult?.transactionId,
           payment_receipt_url: paymentResult?.receiptUrl,
           payment_metadata: paymentResult?.metadata,
-          payment_completed_at: paymentResult ? new Date().toISOString() : null,
+          payment_completed_at: isManualPayment ? null : new Date().toISOString(),
         })
         .select()
         .single();

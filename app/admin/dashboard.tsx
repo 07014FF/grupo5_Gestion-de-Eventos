@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,13 +8,22 @@ import {
   ActivityIndicator,
   Alert,
   RefreshControl,
+  StatusBar,
+  Platform,
+  Dimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Colors, Spacing, FontSizes, BorderRadius } from '@/constants/theme';
-import { Button, Card } from '@/components/ui';
+import { Colors, Spacing, FontSizes, BorderRadius, AdminGradients, AdminSpacing, AdminFontSizes, Shadows, AdminEffects, AdminColors } from '@/constants/theme';
+import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';
+import { getSalesByCategory, getNewUsersOverTime, getTicketValidationStatus, SalesByCategory, NewUsersData, TicketValidationData } from '@/services/analytics.service';
+import { ReportService } from '@/services/report.service';
+import { AdminHeroHeader } from '@/components/admin/AdminHeroHeader';
+import { StatCardPremium } from '@/components/admin/StatCardPremium';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface DashboardStats {
   totalEvents: number;
@@ -23,6 +32,14 @@ interface DashboardStats {
   totalRevenue: number;
   pendingValidations: number;
   todaysSales: number;
+}
+
+interface ChartData {
+  weeklyRevenue: number[];
+  eventTickets: {
+    labels: string[];
+    data: number[];
+  };
 }
 
 interface RecentPurchase {
@@ -48,13 +65,18 @@ export default function AdminDashboard() {
     todaysSales: 0,
   });
   const [recentPurchases, setRecentPurchases] = useState<RecentPurchase[]>([]);
+  const [chartData, setChartData] = useState<ChartData>({
+    weeklyRevenue: [0, 0, 0, 0, 0, 0, 0],
+    eventTickets: {
+      labels: ['Cargando...'],
+      data: [0],
+    },
+  });
+  const [salesByCategory, setSalesByCategory] = useState<SalesByCategory[]>([]);
+  const [newUsersData, setNewUsersData] = useState<NewUsersData>({ labels: [], datasets: [{ data: [] }] });
+  const [ticketValidationData, setTicketValidationData] = useState<TicketValidationData[]>([]);
 
-  useEffect(() => {
-    checkAdminAccess();
-    loadDashboardData();
-  }, []);
-
-  const checkAdminAccess = async () => {
+  const checkAdminAccess = useCallback(async () => {
     if (!user) {
       Alert.alert('Acceso Denegado', 'Debes iniciar sesión.');
       router.replace('/');
@@ -75,9 +97,9 @@ export default function AdminDashboard() {
       );
       router.replace('/');
     }
-  };
+  }, [router, user]);
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = useCallback(async () => {
     try {
       setLoading(true);
 
@@ -154,11 +176,108 @@ export default function AdminDashboard() {
       });
 
       setRecentPurchases(formattedPurchases);
+
+      // Get weekly revenue data (last 7 days)
+      const weeklyRevenue = await getWeeklyRevenue();
+
+      // Get top events by tickets sold
+      const topEvents = await getTopEventsByTickets();
+
+      setChartData({
+        weeklyRevenue,
+        eventTickets: topEvents,
+      });
+
+      const salesByCategoryData = await getSalesByCategory();
+      setSalesByCategory(salesByCategoryData);
+
+      const newUsersData = await getNewUsersOverTime();
+      setNewUsersData(newUsersData);
+
+      const ticketValidationData = await getTicketValidationStatus();
+      setTicketValidationData(ticketValidationData);
+
     } catch (error) {
       console.error('Error loading dashboard:', error);
       Alert.alert('Error', 'No se pudo cargar el dashboard.');
     } finally {
       setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkAdminAccess();
+    loadDashboardData();
+  }, [checkAdminAccess, loadDashboardData]);
+
+  // Get revenue for last 7 days
+  const getWeeklyRevenue = async (): Promise<number[]> => {
+    try {
+      const revenue: number[] = [];
+      const today = new Date();
+
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date(today);
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+
+        const { data } = await supabase
+          .from('purchases')
+          .select('total_amount')
+          .gte('created_at', `${dateStr}T00:00:00`)
+          .lt('created_at', `${dateStr}T23:59:59`)
+          .eq('payment_status', 'completed');
+
+        const dayRevenue = data?.reduce((sum, p) => sum + p.total_amount, 0) || 0;
+        revenue.push(dayRevenue);
+      }
+
+      return revenue;
+    } catch (error) {
+      console.error('Error getting weekly revenue:', error);
+      return [0, 0, 0, 0, 0, 0, 0];
+    }
+  };
+
+  // Get top 5 events by tickets sold
+  const getTopEventsByTickets = async (): Promise<{ labels: string[]; data: number[] }> => {
+    try {
+      const { data: events } = await supabase
+        .from('events')
+        .select(`
+          id,
+          title,
+          tickets (id)
+        `)
+        .eq('status', 'active')
+        .limit(5);
+
+      if (!events || events.length === 0) {
+        return {
+          labels: ['Sin eventos'],
+          data: [0],
+        };
+      }
+
+      const eventData = events.map(event => ({
+        title: event.title.length > 10 ? event.title.substring(0, 10) + '...' : event.title,
+        count: (event.tickets as any[])?.length || 0,
+      }));
+
+      // Sort by ticket count
+      eventData.sort((a, b) => b.count - a.count);
+
+      return {
+        labels: eventData.map(e => e.title),
+        data: eventData.map(e => e.count),
+      };
+    } catch (error) {
+      console.error('Error getting top events:', error);
+      return {
+        labels: ['Error'],
+        data: [0],
+      };
     }
   };
 
@@ -168,13 +287,31 @@ export default function AdminDashboard() {
     setRefreshing(false);
   };
 
+  const handleExportPDF = async () => {
+    try {
+      await ReportService.exportToPDF(stats, recentPurchases, chartData.weeklyRevenue);
+    } catch (error) {
+      console.error('Error exporting PDF:', error);
+      Alert.alert('Error', 'No se pudo exportar el reporte');
+    }
+  };
+
+  const handleExportCSV = async () => {
+    try {
+      await ReportService.exportToCSV(recentPurchases);
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+      Alert.alert('Error', 'No se pudo exportar el reporte');
+    }
+  };
+
   const formatCurrency = (amount: number) => {
-    return `$${amount.toLocaleString('es-CO')}`;
+    return `S/ ${amount.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('es-CO', {
+    return date.toLocaleDateString('es-PE', {
       day: '2-digit',
       month: 'short',
       hour: '2-digit',
@@ -184,295 +321,793 @@ export default function AdminDashboard() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <SafeAreaView style={styles.loadingContainer} edges={['top', 'left', 'right', 'bottom']}>
+        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={false} />
         <ActivityIndicator size="large" color={Colors.dark.primary} />
         <Text style={styles.loadingText}>Cargando dashboard...</Text>
-      </View>
+      </SafeAreaView>
     );
   }
 
+  const todayRevenueChange = stats.todaysSales > 0
+    ? ((stats.todaysSales / (stats.totalRevenue / 30)) - 1) * 100
+    : 0;
+
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
-      }
-    >
-      {/* Welcome Section */}
-      <View style={styles.header}>
-        <Text style={styles.title}>Panel de Administración</Text>
-        <Text style={styles.subtitle}>Gestiona eventos y ventas</Text>
-      </View>
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={false} />
 
-      {/* Quick Actions */}
-      <View style={styles.actionsContainer}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => router.push('/admin/create-event')}
-        >
-          <Ionicons name="add-circle" size={24} color="#fff" />
-          <Text style={styles.actionButtonText}>Crear Evento</Text>
-        </TouchableOpacity>
+      {/* Hero Header - Optimized height */}
+      <AdminHeroHeader
+        adminName={user?.email?.split('@')[0] || 'Admin'}
+        todayRevenue={stats.todaysSales}
+        revenueChange={todayRevenueChange}
+      />
 
-        <TouchableOpacity
-          style={[styles.actionButton, styles.actionButtonSecondary]}
-          onPress={() => router.push('/(tabs)/qr')}
-        >
-          <Ionicons name="qr-code" size={24} color={Colors.dark.primary} />
-          <Text style={[styles.actionButtonText, styles.actionButtonTextSecondary]}>
-            Escanear QR
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Stats Grid */}
-      <View style={styles.statsGrid}>
-        <View style={styles.statCard}>
-          <Ionicons name="calendar" size={28} color={Colors.dark.primary} />
-          <Text style={styles.statValue}>{stats.activeEvents}</Text>
-          <Text style={styles.statLabel}>Eventos Activos</Text>
-        </View>
-
-        <View style={styles.statCard}>
-          <Ionicons name="ticket" size={28} color="#10B981" />
-          <Text style={styles.statValue}>{stats.totalTicketsSold}</Text>
-          <Text style={styles.statLabel}>Tickets Vendidos</Text>
-        </View>
-
-        <View style={styles.statCard}>
-          <Ionicons name="cash" size={28} color="#F59E0B" />
-          <Text style={styles.statValue}>{formatCurrency(stats.totalRevenue)}</Text>
-          <Text style={styles.statLabel}>Ingresos Totales</Text>
-        </View>
-
-        <View style={styles.statCard}>
-          <Ionicons name="time" size={28} color="#8B5CF6" />
-          <Text style={styles.statValue}>{stats.pendingValidations}</Text>
-          <Text style={styles.statLabel}>Pendientes</Text>
-        </View>
-
-        <View style={[styles.statCard, styles.statCardWide]}>
-          <Ionicons name="trending-up" size={28} color="#EF4444" />
-          <Text style={styles.statValue}>{formatCurrency(stats.todaysSales)}</Text>
-          <Text style={styles.statLabel}>Ventas de Hoy</Text>
-        </View>
-
-        <View style={[styles.statCard, styles.statCardWide]}>
-          <Ionicons name="albums" size={28} color="#06B6D4" />
-          <Text style={styles.statValue}>{stats.totalEvents}</Text>
-          <Text style={styles.statLabel}>Total Eventos</Text>
-        </View>
-      </View>
-
-      {/* Recent Purchases */}
-      <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Compras Recientes</Text>
-          <TouchableOpacity>
-            <Text style={styles.seeAllText}>Ver Todas</Text>
-          </TouchableOpacity>
-        </View>
-
-        {recentPurchases.length === 0 ? (
-          <Card>
-            <Text style={styles.emptyText}>No hay compras recientes</Text>
-          </Card>
-        ) : (
-          recentPurchases.map((purchase) => (
-            <Card key={purchase.id} style={styles.purchaseCard}>
-              <View style={styles.purchaseHeader}>
-                <View style={styles.purchaseInfo}>
-                  <Text style={styles.purchaseEvent}>{purchase.event_title}</Text>
-                  <Text style={styles.purchaseUser}>{purchase.user_name}</Text>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            tintColor={Colors.dark.primary}
+          />
+        }
+        showsVerticalScrollIndicator={false}
+      >
+        {/* === SECTION 1: QUICK ACTIONS === */}
+        <View style={styles.sectionContainer}>
+          <View style={styles.actionsGrid}>
+            <TouchableOpacity
+              style={styles.actionCard}
+              onPress={() => router.push('/admin/create-event')}
+              accessibilityLabel="Crear nuevo evento"
+              accessibilityRole="button"
+            >
+              <LinearGradient
+                colors={AdminGradients.actions.create}
+                style={styles.actionCardGradient}
+              >
+                <View style={styles.actionIconContainer}>
+                  <Ionicons name="add-circle" size={28} color={Colors.dark.textLight} />
                 </View>
-                <View style={styles.purchaseAmount}>
-                  <Text style={styles.purchasePrice}>
-                    {formatCurrency(purchase.total_amount)}
-                  </Text>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      purchase.payment_status === 'completed'
-                        ? styles.statusCompleted
-                        : styles.statusPending,
-                    ]}
-                  >
-                    <Text style={styles.statusText}>
-                      {purchase.payment_status === 'completed' ? 'Pagado' : 'Pendiente'}
+                <View style={styles.actionCardContent}>
+                  <Text style={styles.actionCardTitle}>Crear Evento</Text>
+                  <Text style={styles.actionCardSubtitle}>Nuevo evento</Text>
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionCard}
+              onPress={() => router.push('/(tabs)/qr')}
+              accessibilityLabel="Escanear código QR"
+              accessibilityRole="button"
+            >
+              <LinearGradient
+                colors={AdminGradients.actions.scan}
+                style={styles.actionCardGradient}
+              >
+                <View style={styles.actionIconContainer}>
+                  <Ionicons name="qr-code" size={28} color={Colors.dark.textLight} />
+                </View>
+                <View style={styles.actionCardContent}>
+                  <Text style={styles.actionCardTitle}>Escanear QR</Text>
+                  <Text style={styles.actionCardSubtitle}>Validar tickets</Text>
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.actionCard}
+              onPress={() => router.push('/admin/user-management')}
+              accessibilityLabel="Gestionar usuarios"
+              accessibilityRole="button"
+            >
+              <LinearGradient
+                colors={AdminGradients.actions.users}
+                style={styles.actionCardGradient}
+              >
+                <View style={styles.actionIconContainer}>
+                  <Ionicons name="people" size={28} color={Colors.dark.textLight} />
+                </View>
+                <View style={styles.actionCardContent}>
+                  <Text style={styles.actionCardTitle}>Usuarios</Text>
+                  <Text style={styles.actionCardSubtitle}>Gestionar roles</Text>
+                </View>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* === SECTION 2: STATS OVERVIEW === */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Resumen General</Text>
+
+          <View style={styles.statsGrid}>
+            {/* Primary Stats Row */}
+            <View style={styles.statsRow}>
+              <View style={styles.statHalf}>
+                <StatCardPremium
+                  icon="📅"
+                  title="Eventos Activos"
+                  value={stats.activeEvents}
+                  change={12}
+                  changeLabel="esta semana"
+                  gradientColors={AdminGradients.stats.events}
+                />
+              </View>
+              <View style={styles.statHalf}>
+                <StatCardPremium
+                  icon="🎫"
+                  title="Tickets Vendidos"
+                  value={stats.totalTicketsSold}
+                  change={28}
+                  changeLabel="este mes"
+                  gradientColors={AdminGradients.stats.tickets}
+                />
+              </View>
+            </View>
+
+            {/* Featured Revenue Stat */}
+            <View style={styles.statFull}>
+              <StatCardPremium
+                icon="💰"
+                title="Ingresos Totales"
+                value={formatCurrency(stats.totalRevenue)}
+                change={15}
+                changeLabel="vs mes anterior"
+                gradientColors={AdminGradients.stats.revenue}
+              />
+            </View>
+
+            {/* Secondary Stats Row */}
+            <View style={styles.statsRow}>
+              <View style={styles.statHalf}>
+                <StatCardPremium
+                  icon="⏱️"
+                  title="Pendientes"
+                  value={stats.pendingValidations}
+                  gradientColors={AdminGradients.stats.pending}
+                />
+              </View>
+              <View style={styles.statHalf}>
+                <StatCardPremium
+                  icon="📊"
+                  title="Total Eventos"
+                  value={stats.totalEvents}
+                  gradientColors={AdminGradients.actions.users}
+                />
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* === SECTION 3: ANALYTICS CHARTS === */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Análisis de Ventas</Text>
+
+          {/* Revenue Trend Chart */}
+          <View style={styles.chartContainer}>
+            <View style={styles.chartHeader}>
+              <View style={styles.chartHeaderLeft}>
+                <Ionicons name="trending-up" size={22} color={Colors.dark.primary} />
+                <Text style={styles.chartTitle}>Ingresos Semanales</Text>
+              </View>
+              <Text style={styles.chartSubtitle}>Últimos 7 días</Text>
+            </View>
+
+            <View style={styles.chartWrapper}>
+              <LineChart
+                data={{
+                  labels: ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'],
+                  datasets: [
+                    {
+                      data: chartData.weeklyRevenue.length > 0
+                        ? chartData.weeklyRevenue.map(v => Math.max(v, 1))
+                        : [1, 1, 1, 1, 1, 1, 1],
+                    },
+                  ],
+                }}
+                width={Dimensions.get('window').width - (Spacing.lg * 2)}
+                height={200}
+                chartConfig={{
+                  backgroundColor: 'transparent',
+                  backgroundGradientFrom: 'transparent',
+                  backgroundGradientTo: 'transparent',
+                  decimalPlaces: 0,
+                  color: (opacity = 1) => `rgba(0, 208, 132, ${opacity})`,
+                  labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity * 0.7})`,
+                  propsForDots: {
+                    r: '6',
+                    strokeWidth: '2',
+                    stroke: Colors.dark.primary,
+                    fill: Colors.dark.background,
+                  },
+                  propsForBackgroundLines: {
+                    strokeDasharray: '',
+                    stroke: 'rgba(255, 255, 255, 0.08)',
+                    strokeWidth: 1,
+                  },
+                }}
+                bezier
+                style={styles.chart}
+                withInnerLines
+                withOuterLines={false}
+                withVerticalLines={false}
+                withHorizontalLines
+              />
+            </View>
+          </View>
+
+          {/* Tickets Distribution Chart */}
+          <View style={styles.chartContainer}>
+            <View style={styles.chartHeader}>
+              <View style={styles.chartHeaderLeft}>
+                <Ionicons name="bar-chart" size={22} color={Colors.dark.primary} />
+                <Text style={styles.chartTitle}>Distribución de Tickets</Text>
+              </View>
+              <Text style={styles.chartSubtitle}>Top eventos</Text>
+            </View>
+
+            <View style={styles.chartWrapper}>
+              <BarChart
+                data={{
+                  labels: chartData.eventTickets.labels,
+                  datasets: [
+                    {
+                      data: chartData.eventTickets.data.length > 0
+                        ? chartData.eventTickets.data.map(v => Math.max(v, 1))
+                        : [1],
+                    },
+                  ],
+                }}
+                width={Dimensions.get('window').width - (Spacing.lg * 2)}
+                height={200}
+                yAxisLabel=""
+                yAxisSuffix=""
+                chartConfig={{
+                  backgroundColor: 'transparent',
+                  backgroundGradientFrom: 'transparent',
+                  backgroundGradientTo: 'transparent',
+                  decimalPlaces: 0,
+                  color: (opacity = 1) => `rgba(0, 208, 132, ${opacity})`,
+                  labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity * 0.7})`,
+                  barPercentage: 0.6,
+                  propsForBackgroundLines: {
+                    strokeDasharray: '',
+                    stroke: 'rgba(255, 255, 255, 0.08)',
+                    strokeWidth: 1,
+                  },
+                }}
+                style={styles.chart}
+                withInnerLines
+                showValuesOnTopOfBars
+                fromZero
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* === SECTION 4: RECENT ACTIVITY === */}
+        <View style={styles.sectionContainer}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Actividad Reciente</Text>
+              <Text style={styles.sectionSubtitle}>Últimas 10 transacciones</Text>
+            </View>
+            <TouchableOpacity style={styles.viewAllButton}>
+              <Text style={styles.viewAllText}>Ver Todo</Text>
+              <Ionicons name="chevron-forward" size={16} color={Colors.dark.primary} />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.purchasesList}>
+            {recentPurchases.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="receipt-outline" size={48} color={Colors.dark.textSecondary} />
+                <Text style={styles.emptyStateTitle}>No hay compras recientes</Text>
+                <Text style={styles.emptyStateText}>
+                  Las transacciones aparecerán aquí
+                </Text>
+              </View>
+            ) : (
+              recentPurchases.map((purchase) => (
+                <View key={purchase.id} style={styles.purchaseCard}>
+                  <View style={styles.purchaseLeft}>
+                    <View style={[styles.purchaseIconContainer, { backgroundColor: purchase.payment_status === 'completed' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)'}]}>
+                      <Ionicons
+                        name={purchase.payment_status === 'completed' ? 'checkmark-circle' : 'time-outline'}
+                        size={24}
+                        color={purchase.payment_status === 'completed' ? Colors.dark.success : Colors.dark.warning}
+                      />
+                    </View>
+                    <View style={styles.purchaseInfo}>
+                      <Text style={styles.purchaseEvent} numberOfLines={1}>
+                        {purchase.event_title}
+                      </Text>
+                      <Text style={styles.purchaseUser}>{purchase.user_name}</Text>
+                      <Text style={styles.purchaseDate}>{formatDate(purchase.created_at)}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.purchaseRight}>
+                    <Text style={styles.purchaseAmount}>
+                      {formatCurrency(purchase.total_amount)}
                     </Text>
+                    <View
+                      style={[
+                        styles.statusBadge,
+                        purchase.payment_status === 'completed'
+                          ? styles.statusCompleted
+                          : styles.statusPending,
+                      ]}
+                    >
+                      <Text style={styles.statusText}>
+                        {purchase.payment_status === 'completed' ? 'Pagado' : 'Pendiente'}
+                      </Text>
+                    </View>
                   </View>
                 </View>
+              ))
+            )}
+          </View>
+        </View>
+
+        {/* === SECTION 5: EXPORT TOOLS === */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Herramientas de Reporte</Text>
+
+          <View style={styles.exportContainer}>
+            <TouchableOpacity
+              style={styles.exportCard}
+              onPress={handleExportPDF}
+              accessibilityLabel="Exportar reporte en PDF"
+              accessibilityRole="button"
+            >
+              <View style={styles.exportIconContainer}>
+                <Ionicons name="document-text" size={24} color={Colors.dark.primary} />
               </View>
-              <Text style={styles.purchaseDate}>{formatDate(purchase.created_at)}</Text>
-            </Card>
-          ))
-        )}
-      </View>
-    </ScrollView>
+              <View style={styles.exportInfo}>
+                <Text style={styles.exportTitle}>Exportar PDF</Text>
+                <Text style={styles.exportSubtitle}>Reporte completo</Text>
+              </View>
+              <Ionicons name="download-outline" size={20} color={Colors.dark.textSecondary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.exportCard}
+              onPress={handleExportCSV}
+              accessibilityLabel="Exportar reporte en CSV"
+              accessibilityRole="button"
+            >
+              <View style={styles.exportIconContainer}>
+                <Ionicons name="grid" size={24} color={Colors.dark.primary} />
+              </View>
+              <View style={styles.exportInfo}>
+                <Text style={styles.exportTitle}>Exportar CSV</Text>
+                <Text style={styles.exportSubtitle}>Datos en tabla</Text>
+              </View>
+              <Ionicons name="download-outline" size={20} color={Colors.dark.textSecondary} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Bottom Padding for Tab Navigation */}
+        <View style={styles.bottomSpacer} />
+
+        {/* === SECTION 6: ADVANCED ANALYTICS === */}
+        <View style={styles.sectionContainer}>
+          <Text style={styles.sectionTitle}>Análisis Avanzado</Text>
+
+          {/* Sales by Category Chart */}
+          <View style={styles.chartContainer}>
+            <View style={styles.chartHeader}>
+              <View style={styles.chartHeaderLeft}>
+                <Ionicons name="pie-chart" size={22} color={Colors.dark.primary} />
+                <Text style={styles.chartTitle}>Ventas por Categoría</Text>
+              </View>
+            </View>
+            <PieChart
+              data={salesByCategory}
+              width={Dimensions.get('window').width - (Spacing.lg * 2)}
+              height={220}
+              chartConfig={{
+                color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+              }}
+              accessor={"total"}
+              backgroundColor={"transparent"}
+              paddingLeft={"15"}
+              absolute
+            />
+          </View>
+
+          {/* New Users Over Time Chart */}
+          <View style={styles.chartContainer}>
+            <View style={styles.chartHeader}>
+              <View style={styles.chartHeaderLeft}>
+                <Ionicons name="trending-up" size={22} color={Colors.dark.primary} />
+                <Text style={styles.chartTitle}>Nuevos Usuarios</Text>
+              </View>
+              <Text style={styles.chartSubtitle}>Últimos 30 días</Text>
+            </View>
+            <LineChart
+              data={newUsersData}
+              width={Dimensions.get('window').width - (Spacing.lg * 2)}
+              height={220}
+              chartConfig={{
+                backgroundColor: 'transparent',
+                backgroundGradientFrom: 'transparent',
+                backgroundGradientTo: 'transparent',
+                decimalPlaces: 0,
+                color: (opacity = 1) => `rgba(0, 208, 132, ${opacity})`,
+                labelColor: (opacity = 1) => `rgba(255, 255, 255, ${opacity * 0.7})`,
+              }}
+              bezier
+            />
+          </View>
+
+          {/* Ticket Validation Status Chart */}
+          <View style={styles.chartContainer}>
+            <View style={styles.chartHeader}>
+              <View style={styles.chartHeaderLeft}>
+                <Ionicons name="checkmark-done-circle" size={22} color={Colors.dark.primary} />
+                <Text style={styles.chartTitle}>Estado de Tickets</Text>
+              </View>
+            </View>
+            <PieChart
+              data={ticketValidationData}
+              width={Dimensions.get('window').width - (Spacing.lg * 2)}
+              height={220}
+              chartConfig={{
+                color: (opacity = 1) => `rgba(255, 255, 255, ${opacity})`,
+              }}
+              accessor={"count"}
+              backgroundColor={"transparent"}
+              paddingLeft={"15"}
+            />
+          </View>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1A1A1A',
+    backgroundColor: Colors.dark.background,
+  },
+  scrollView: {
+    flex: 1,
   },
   content: {
-    padding: Spacing.lg,
-    paddingBottom: Spacing.xxxl,
+    paddingBottom: Platform.OS === 'ios' ? 120 : 110,
+    paddingHorizontal: Spacing.lg,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#1A1A1A',
+    backgroundColor: Colors.dark.background,
   },
   loadingText: {
     marginTop: Spacing.md,
     fontSize: FontSizes.md,
     color: Colors.dark.textSecondary,
   },
-  header: {
-    marginBottom: Spacing.xl,
+
+  // === SECTION CONTAINER ===
+  sectionContainer: {
+    marginBottom: AdminSpacing.section,
+    marginTop: Spacing.lg,
   },
-  title: {
-    fontSize: FontSizes.xxxl,
-    fontWeight: '800',
-    color: '#fff',
-    marginBottom: Spacing.xs,
-  },
-  subtitle: {
-    fontSize: FontSizes.md,
-    color: Colors.dark.textSecondary,
-  },
-  actionsContainer: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    marginBottom: Spacing.xl,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    backgroundColor: Colors.dark.primary,
-    padding: Spacing.md,
-    borderRadius: BorderRadius.lg,
-  },
-  actionButtonSecondary: {
-    backgroundColor: '#2A2A2A',
-  },
-  actionButtonText: {
-    fontSize: FontSizes.md,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  actionButtonTextSecondary: {
-    color: Colors.dark.primary,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.md,
-    marginBottom: Spacing.xl,
-  },
-  statCard: {
-    width: '48%',
-    backgroundColor: '#2A2A2A',
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.lg,
-    alignItems: 'center',
-  },
-  statCardWide: {
-    width: '48%',
-  },
-  statValue: {
-    fontSize: FontSizes.xxl,
-    fontWeight: '800',
-    color: '#fff',
-    marginTop: Spacing.sm,
-  },
-  statLabel: {
-    fontSize: FontSizes.sm,
-    color: Colors.dark.textSecondary,
-    marginTop: Spacing.xs,
-    textAlign: 'center',
-  },
-  section: {
-    marginBottom: Spacing.xl,
-  },
+
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.lg,
   },
+
   sectionTitle: {
-    fontSize: FontSizes.xl,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: AdminFontSizes.sectionTitle,
+    fontWeight: '800',
+    color: AdminColors.headingPrimary,
+    letterSpacing: 0.5,
   },
-  seeAllText: {
+
+  sectionSubtitle: {
+    fontSize: FontSizes.sm,
+    color: AdminColors.headingSecondary,
+    fontWeight: '500',
+  },
+
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    backgroundColor: AdminColors.buttonSecondaryBg,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: AdminColors.borderMedium,
+  },
+
+  viewAllText: {
     fontSize: FontSizes.sm,
     fontWeight: '600',
     color: Colors.dark.primary,
   },
-  emptyText: {
-    fontSize: FontSizes.md,
-    color: Colors.dark.textSecondary,
-    textAlign: 'center',
-    padding: Spacing.lg,
+
+  // === QUICK ACTIONS ===
+  actionsGrid: {
+    flexDirection: 'row',
+    gap: Spacing.md,
   },
-  purchaseCard: {
+
+  actionCard: {
+    flex: 1,
+    borderRadius: BorderRadius.xl,
+    overflow: 'hidden',
+    ...Shadows.lg,
+  },
+
+  actionCardGradient: {
+    padding: Spacing.lg,
+    minHeight: 150,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+
+  actionIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.round,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: Spacing.md,
   },
-  purchaseHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+
+  actionCardContent: {},
+
+  actionCardTitle: {
+    fontSize: FontSizes.xl,
+    fontWeight: '800',
+    color: AdminColors.headingPrimary,
     marginBottom: Spacing.xs,
   },
+
+  actionCardSubtitle: {
+    fontSize: FontSizes.md,
+    color: AdminColors.headingPrimary,
+    fontWeight: '600',
+  },
+
+  // === STATS GRID ===
+  statsGrid: {
+    gap: AdminSpacing.cardGroup,
+  },
+
+  statsRow: {
+    flexDirection: 'row',
+    gap: AdminSpacing.cardGroup,
+  },
+
+  statHalf: {
+    flex: 1,
+  },
+
+  statFull: {
+    width: '100%',
+  },
+
+  // === CHARTS ===
+  chartContainer: {
+    backgroundColor: AdminColors.cardBackground,
+    borderRadius: BorderRadius.xl,
+    padding: AdminSpacing.cardInternal,
+    marginBottom: AdminSpacing.section,
+    borderWidth: 1,
+    borderColor: AdminColors.borderMedium,
+    ...Shadows.md,
+  },
+
+  chartHeader: {
+    marginBottom: Spacing.lg,
+    paddingBottom: Spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: AdminColors.divider,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  chartHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+  },
+
+  chartTitle: {
+    fontSize: AdminFontSizes.cardTitle,
+    fontWeight: '800',
+    color: AdminColors.headingPrimary,
+  },
+
+  chartSubtitle: {
+    fontSize: FontSizes.sm,
+    color: AdminColors.bodyPrimary,
+    fontWeight: '600',
+  },
+
+  chartWrapper: {
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+
+  chart: {
+    borderRadius: BorderRadius.lg,
+    marginLeft: -Spacing.lg,
+  },
+
+  // === RECENT PURCHASES ===
+  purchasesList: {
+    gap: Spacing.md,
+  },
+
+  purchaseCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: Spacing.md,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: AdminColors.cardBackground,
+    borderWidth: 1,
+    borderColor: AdminColors.borderSubtle,
+  },
+
+  purchaseLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginRight: Spacing.md,
+  },
+
+  purchaseIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.round,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
   purchaseInfo: {
     flex: 1,
   },
+
   purchaseEvent: {
-    fontSize: FontSizes.md,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 4,
+    fontSize: FontSizes.lg,
+    fontWeight: '700',
+    color: AdminColors.headingPrimary,
+    marginBottom: 2,
   },
+
   purchaseUser: {
     fontSize: FontSizes.sm,
-    color: Colors.dark.textSecondary,
+    color: AdminColors.bodyPrimary,
+    marginBottom: 4,
   },
-  purchaseAmount: {
+
+  purchaseDate: {
+    fontSize: FontSizes.xs,
+    color: AdminColors.bodySecondary,
+  },
+
+  purchaseRight: {
     alignItems: 'flex-end',
+    gap: Spacing.xs,
   },
-  purchasePrice: {
+
+  purchaseAmount: {
     fontSize: FontSizes.lg,
     fontWeight: '700',
     color: Colors.dark.primary,
-    marginBottom: 4,
   },
+
   statusBadge: {
     paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: BorderRadius.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.md,
   },
+
   statusCompleted: {
     backgroundColor: 'rgba(16, 185, 129, 0.2)',
   },
+
   statusPending: {
     backgroundColor: 'rgba(245, 158, 11, 0.2)',
   },
+
   statusText: {
-    fontSize: FontSizes.xs,
-    fontWeight: '600',
-    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: Colors.dark.textLight,
+    textTransform: 'uppercase',
   },
-  purchaseDate: {
-    fontSize: FontSizes.xs,
-    color: Colors.dark.textSecondary,
+
+  // === EMPTY STATE ===
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: Spacing.xxl,
+    paddingHorizontal: Spacing.lg,
+    backgroundColor: AdminColors.cardBackground,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: AdminColors.borderSubtle,
+  },
+
+  emptyStateTitle: {
+    fontSize: FontSizes.xl,
+    fontWeight: '700',
+    color: AdminColors.headingPrimary,
+    marginTop: Spacing.md,
+    marginBottom: Spacing.xs,
+  },
+
+  emptyStateText: {
+    fontSize: FontSizes.md,
+    color: AdminColors.bodyPrimary,
+    textAlign: 'center',
+  },
+
+  // === EXPORT TOOLS ===
+  exportContainer: {
+    gap: Spacing.md,
+  },
+
+  exportCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: AdminColors.cardBackground,
+    borderWidth: 1,
+    borderColor: AdminColors.borderMedium,
+  },
+
+  exportIconContainer: {
+    width: 52,
+    height: 52,
+    borderRadius: BorderRadius.round,
+    backgroundColor: 'rgba(0, 208, 132, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: Spacing.md,
+  },
+
+  exportInfo: {
+    flex: 1,
+  },
+
+  exportTitle: {
+    fontSize: FontSizes.xl,
+    fontWeight: '800',
+    color: AdminColors.headingPrimary,
+    marginBottom: 2,
+  },
+
+  exportSubtitle: {
+    fontSize: FontSizes.md,
+    color: AdminColors.bodyPrimary,
+  },
+
+  // === SPACING ===
+  bottomSpacer: {
+    height: Spacing.lg,
   },
 });

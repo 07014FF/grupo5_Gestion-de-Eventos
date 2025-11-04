@@ -1,47 +1,51 @@
-import { Button, Input } from '@/components/ui';
+import { ManualQRPayment } from '@/components/payment/ManualQRPayment';
+import { PaymentMethodSelector } from '@/components/payment/PaymentMethodSelector';
+import { Button, FormContainer, Input } from '@/components/ui';
 import { BorderRadius, Colors, FontSizes, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { PaymentGateway, PaymentService } from '@/services/payment.service';
 import { TicketServiceSupabase } from '@/services/ticket.service.supabase';
-import { PaymentService, PaymentGateway } from '@/services/payment.service';
+import { purchaseParamsSchema, type PurchaseParams } from '@/types/navigation.types';
 import { Event, PaymentMethod, UserInfo } from '@/types/ticket.types';
+import { normalizeSearchParams, parsePrice } from '@/utils/navigation';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  SafeAreaView,
-  ScrollView,
+  Modal,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // Ocultar header
 export const options = {
   headerShown: false,
 };
 
-interface PaymentMethodOption {
-  id: string;
-  name: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  fee?: number;
-}
+const clampQuantity = (value: number) => Math.min(Math.max(value, 1), 5);
 
-const PAYMENT_METHODS: PaymentMethodOption[] = [
-  { id: 'card', name: 'Tarjeta de Crédito/Débito', icon: 'card-outline' },
-  { id: 'pse', name: 'PSE', icon: 'business-outline', fee: 3000 },
-  { id: 'nequi', name: 'Nequi', icon: 'phone-portrait-outline' },
-  { id: 'daviplata', name: 'Daviplata', icon: 'wallet-outline' },
-];
+const FALLBACK_PURCHASE_PARAMS: PurchaseParams = {
+  eventId: 'fallback',
+  eventTitle: 'Evento',
+  eventDate: '',
+  eventTime: '',
+  eventLocation: '',
+  ticketPrice: '0',
+  ticketType: 'general',
+  quantity: '1',
+};
 
 export default function PurchaseScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams();
+  const params = useLocalSearchParams<Record<string, string | string[]>>();
   const { user } = useAuth();
+  const insets = useSafeAreaInsets();
 
   // Redirigir si el usuario no está autenticado
   useEffect(() => {
@@ -50,28 +54,48 @@ export default function PurchaseScreen() {
     }
   }, [user, router]);
 
-  // Helper function to ensure string type
-  const toStringParam = (param: string | string[] | undefined, defaultValue: string): string => {
-    if (!param) return defaultValue;
-    return Array.isArray(param) ? param[0] : param;
-  };
+  const parsedParams = useMemo<PurchaseParams>(() => {
+    const normalized = normalizeSearchParams(params);
+    const result = purchaseParamsSchema.safeParse(normalized);
+
+    if (!result.success) {
+      console.error('Parámetros inválidos para la compra', result.error.flatten().fieldErrors);
+      return FALLBACK_PURCHASE_PARAMS;
+    }
+
+    return result.data;
+  }, [params]);
+
+  const basePrice = useMemo(
+    () => parsePrice(parsedParams.ticketPrice),
+    [parsedParams.ticketPrice]
+  );
 
   // Datos del evento recibidos desde event-detail
-  const eventData = {
-    id: toStringParam(params.eventId, '1'),
-    title: toStringParam(params.eventTitle, 'Festival de Jazz 2024'),
-    subtitle: 'Centro Cultural',
-    date: toStringParam(params.eventDate, '2024-03-15'),
-    time: toStringParam(params.eventTime, '19:30'),
-    location: toStringParam(params.eventLocation, 'Bogotá'),
-    price: params.ticketPrice ? parseInt((Array.isArray(params.ticketPrice) ? params.ticketPrice[0] : params.ticketPrice).replace('$', '').replace('.', '')) : 45000,
-    availableTickets: 150,
-    ticketType: toStringParam(params.ticketType, 'General'),
-  };
+  const eventData = useMemo(
+    () => ({
+      id: parsedParams.eventId,
+      title: parsedParams.eventTitle || 'Festival de Jazz 2024',
+      subtitle: 'Centro Cultural',
+      date: parsedParams.eventDate || '2024-03-15',
+      time: parsedParams.eventTime || '19:30',
+      location: parsedParams.eventLocation || 'Lima, Perú',
+      price: basePrice || 5,
+      availableTickets: 150,
+      ticketType: parsedParams.ticketType ?? 'general',
+    }),
+    [parsedParams, basePrice]
+  );
 
-  const [quantity, setQuantity] = useState(parseInt(params.quantity as string) || 1);
+  const [quantity, setQuantity] = useState<number>(() =>
+    clampQuantity(Number(parsedParams.quantity) || 1)
+  );
   const [selectedPayment, setSelectedPayment] = useState<string>('');
+  const [showQRPayment, setShowQRPayment] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [ticketType, setTicketType] = useState<'student' | 'general'>(
+    parsedParams.ticketType === 'student' ? 'student' : 'general'
+  );
   const [userInfo, setUserInfo] = useState({
     name: user?.name || '',
     email: user?.email || 'correo@prueba.com', // Simulado
@@ -79,27 +103,139 @@ export default function PurchaseScreen() {
     document: '',
   });
 
+  useEffect(() => {
+    setQuantity(clampQuantity(Number(parsedParams.quantity) || 1));
+  }, [parsedParams.quantity]);
+
+  useEffect(() => {
+    setTicketType(parsedParams.ticketType === 'student' ? 'student' : 'general');
+  }, [parsedParams.ticketType]);
+
   const calculateTotal = () => {
-    const subtotal = eventData.price * quantity;
-    const selectedMethod = PAYMENT_METHODS.find(m => m.id === selectedPayment);
-    const fee = selectedMethod?.fee || 0;
+    // Precio base según tipo de entrada
+    const currentPrice = ticketType === 'student' ? 0 : eventData.price;
+    const subtotal = currentPrice * quantity;
+    // Yape y Plin no tienen comisión, tarjetas pueden tener una pequeña comisión
+    const fee = 0; // Sin comisión por ahora
     return subtotal + fee;
   };
 
   const handleQuantityChange = (increment: boolean) => {
-    if (increment) {
-      setQuantity(prev => Math.min(prev + 1, 5)); // Máximo 5 boletos
-    } else {
-      setQuantity(prev => Math.max(prev - 1, 1)); // Mínimo 1 boleto
+    setQuantity((prev) => clampQuantity(prev + (increment ? 1 : -1)));
+  };
+
+  const handleManualPaymentConfirmed = async (transactionRef: string) => {
+    setShowQRPayment(false);
+    setIsProcessing(true);
+
+    try {
+      if (!user?.id) {
+        Alert.alert('Error', 'Debes iniciar sesión para comprar entradas');
+        return;
+      }
+
+      // 1. Crear payment intent
+      const paymentIntentResult = await PaymentService.createPaymentIntent(
+        calculateTotal(),
+        selectedPayment as PaymentMethod,
+        {
+          eventId: eventData.id,
+          userId: user.id,
+          quantity,
+          name: userInfo.name,
+          email: userInfo.email,
+          phone: userInfo.phone,
+        }
+      );
+
+      if (!paymentIntentResult.success) {
+        Alert.alert('Error', paymentIntentResult.error.getUserMessage());
+        return;
+      }
+
+      // 2. Procesar pago manual (pendiente de verificación)
+      const paymentResult = await PaymentService.processManualPayment(
+        paymentIntentResult.data,
+        transactionRef
+      );
+
+      if (!paymentResult.success) {
+        Alert.alert('Error', paymentResult.error.getUserMessage());
+        return;
+      }
+
+      const payment = paymentResult.data;
+
+      // 3. Crear el objeto Event para el servicio
+      const event: Event = {
+        id: eventData.id,
+        title: eventData.title,
+        subtitle: eventData.subtitle,
+        date: eventData.date,
+        time: eventData.time,
+        location: eventData.location,
+        price: eventData.price,
+        availableTickets: eventData.availableTickets,
+      };
+
+      // 4. Crear el objeto UserInfo
+      const purchaseUserInfo: UserInfo = {
+        name: userInfo.name,
+        email: userInfo.email,
+        phone: userInfo.phone,
+        document: userInfo.document,
+      };
+
+      // 5. Crear la compra con estado pendiente
+      const ticketResult = await TicketServiceSupabase.createPurchase(
+        event,
+        quantity,
+        purchaseUserInfo,
+        selectedPayment as PaymentMethod,
+        user.id,
+        {
+          paymentId: payment.paymentId,
+          transactionId: transactionRef,
+          gateway: 'manual',
+          metadata: {
+            method: selectedPayment,
+            requiresVerification: true,
+          },
+        }
+      );
+
+      if (ticketResult.success) {
+        Alert.alert(
+          'Pago Registrado',
+          `Tu pago de S/ ${calculateTotal().toFixed(2)} ha sido registrado.\n\nReferencia: ${transactionRef}\n\nTus entradas estarán disponibles una vez que confirmemos tu pago. Esto puede tardar unos minutos.`,
+          [
+            {
+              text: 'Ver Mis Entradas',
+              onPress: () => {
+                router.replace('/(tabs)/my-tickets');
+              },
+            },
+            {
+              text: 'OK',
+              onPress: () => router.back(),
+            },
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Error',
+          'Hubo un error al registrar tu compra. Por favor contacta a soporte con la referencia: ' + transactionRef
+        );
+      }
+    } catch (error) {
+      console.error('Error al procesar pago manual:', error);
+      Alert.alert('Error', 'No se pudo registrar el pago. Intenta nuevamente.');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const handlePurchase = async () => {
-    if (!selectedPayment) {
-      Alert.alert('Error', 'Por favor selecciona un método de pago');
-      return;
-    }
-
     if (!userInfo.name || !userInfo.email) {
       Alert.alert('Error', 'Por favor completa la información requerida');
       return;
@@ -107,6 +243,98 @@ export default function PurchaseScreen() {
 
     if (!user?.id) {
       Alert.alert('Error', 'Debes iniciar sesión para comprar entradas');
+      return;
+    }
+
+    const totalAmount = calculateTotal();
+
+    // ============================================================================
+    // CASO ESPECIAL: Tickets gratuitos para estudiantes (monto = 0)
+    // ============================================================================
+    if (totalAmount === 0) {
+      setIsProcessing(true);
+      try {
+        console.log('🎓 Procesando tickets gratuitos para estudiantes...');
+
+        // Crear el objeto Event
+        const event: Event = {
+          id: eventData.id,
+          title: eventData.title,
+          subtitle: eventData.subtitle,
+          date: eventData.date,
+          time: eventData.time,
+          location: eventData.location,
+          price: eventData.price,
+          availableTickets: eventData.availableTickets,
+        };
+
+        // Crear el objeto UserInfo
+        const purchaseUserInfo: UserInfo = {
+          name: userInfo.name,
+          email: userInfo.email,
+          phone: userInfo.phone,
+          document: userInfo.document,
+        };
+
+        // Crear tickets directamente sin procesar pago (es gratis)
+        const ticketResult = await TicketServiceSupabase.createPurchase(
+          event,
+          quantity,
+          purchaseUserInfo,
+          'free' as PaymentMethod, // Indicar que es gratis
+          user.id,
+          {
+            paymentId: 'FREE_' + Date.now(),
+            transactionId: 'FREE_STUDENT_' + Date.now(),
+            gateway: 'free',
+            metadata: {
+              method: 'free',
+              ticketType: 'student',
+              isFree: true,
+            },
+          }
+        );
+
+        if (ticketResult.success) {
+          Alert.alert(
+            '¡Tickets Obtenidos! 🎓',
+            `Has obtenido ${quantity} entrada(s) de estudiante GRATIS.\n\nPuedes verlas en la sección "Mis Entradas".`,
+            [
+              {
+                text: 'Ver Mis Entradas',
+                onPress: () => {
+                  router.replace('/(tabs)/my-tickets');
+                },
+              },
+              {
+                text: 'OK',
+                onPress: () => router.back(),
+              },
+            ]
+          );
+        } else {
+          Alert.alert('Error', 'No se pudieron generar tus entradas. Intenta nuevamente.');
+        }
+      } catch (error) {
+        console.error('Error al crear tickets gratuitos:', error);
+        Alert.alert('Error', 'No se pudieron generar tus entradas. Intenta nuevamente.');
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // ============================================================================
+    // FLUJO NORMAL: Pagos con monto mayor a 0
+    // ============================================================================
+    if (!selectedPayment) {
+      Alert.alert('Error', 'Por favor selecciona un método de pago');
+      return;
+    }
+
+    // Si es Yape o Plin, mostrar modal de QR
+    if (selectedPayment === 'yape' || selectedPayment === 'plin') {
+      setShowQRPayment(true);
       return;
     }
 
@@ -119,7 +347,7 @@ export default function PurchaseScreen() {
 
       // 1. Crear payment intent
       const paymentIntentResult = await PaymentService.createPaymentIntent(
-        calculateTotal(),
+        totalAmount,
         selectedPayment as PaymentMethod,
         {
           eventId: eventData.id,
@@ -185,8 +413,8 @@ export default function PurchaseScreen() {
 
       if (ticketResult.success) {
         Alert.alert(
-          '🎉 ¡Compra Exitosa!',
-          `Tu compra de ${quantity} entrada(s) por $${calculateTotal().toLocaleString()} ha sido procesada exitosamente.\n\nID de transacción: ${payment.transactionId || payment.paymentId}`,
+          '¡Compra Exitosa!',
+          `Tu compra de ${quantity} entrada(s) por S/ ${totalAmount.toFixed(2)} ha sido procesada exitosamente.\n\nID de transacción: ${payment.transactionId || payment.paymentId}`,
           [
             {
               text: 'Ver Mis Entradas',
@@ -222,8 +450,23 @@ export default function PurchaseScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar backgroundColor={Colors.dark.background} barStyle="light-content" />
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={false} />
+
+      {/* Manual QR Payment Modal */}
+      <Modal
+        visible={showQRPayment}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowQRPayment(false)}
+      >
+        <ManualQRPayment
+          method={selectedPayment as 'yape' | 'plin'}
+          amount={calculateTotal()}
+          onPaymentConfirmed={handleManualPaymentConfirmed}
+          onCancel={() => setShowQRPayment(false)}
+        />
+      </Modal>
 
       {/* Header */}
       <View style={styles.header}>
@@ -234,7 +477,10 @@ export default function PurchaseScreen() {
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <FormContainer
+        safeAreaEdges={[]}
+        contentContainerStyle={styles.scrollContent}
+      >
         {/* Event Info */}
         <View style={styles.eventCard}>
           <Text style={styles.eventTitle}>{eventData.title}</Text>
@@ -258,6 +504,77 @@ export default function PurchaseScreen() {
               </Text>
             </View>
           </View>
+        </View>
+
+        {/* Ticket Type Selection */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Tipo de Entrada</Text>
+
+          <TouchableOpacity
+            style={[
+              styles.ticketTypeOption,
+              ticketType === 'student' && styles.ticketTypeOptionSelected
+            ]}
+            onPress={() => setTicketType('student')}
+          >
+            <View style={styles.ticketTypeContent}>
+              <Ionicons
+                name="school"
+                size={24}
+                color={ticketType === 'student' ? Colors.light.primary : Colors.light.icon}
+              />
+              <View style={styles.ticketTypeInfo}>
+                <Text style={[
+                  styles.ticketTypeName,
+                  ticketType === 'student' && styles.ticketTypeNameSelected
+                ]}>
+                  Estudiante
+                </Text>
+                <Text style={styles.ticketTypePrice}>S/ 0.00 (Gratis)</Text>
+              </View>
+            </View>
+            <View style={[
+              styles.radioButton,
+              ticketType === 'student' && styles.radioButtonSelected
+            ]}>
+              {ticketType === 'student' && (
+                <View style={styles.radioButtonInner} />
+              )}
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[
+              styles.ticketTypeOption,
+              ticketType === 'general' && styles.ticketTypeOptionSelected
+            ]}
+            onPress={() => setTicketType('general')}
+          >
+            <View style={styles.ticketTypeContent}>
+              <Ionicons
+                name="people"
+                size={24}
+                color={ticketType === 'general' ? Colors.light.primary : Colors.light.icon}
+              />
+              <View style={styles.ticketTypeInfo}>
+                <Text style={[
+                  styles.ticketTypeName,
+                  ticketType === 'general' && styles.ticketTypeNameSelected
+                ]}>
+                  Público General
+                </Text>
+                <Text style={styles.ticketTypePrice}>S/ 5.00</Text>
+              </View>
+            </View>
+            <View style={[
+              styles.radioButton,
+              ticketType === 'general' && styles.radioButtonSelected
+            ]}>
+              {ticketType === 'general' && (
+                <View style={styles.radioButtonInner} />
+              )}
+            </View>
+          </TouchableOpacity>
         </View>
 
         {/* Quantity Selection */}
@@ -284,7 +601,7 @@ export default function PurchaseScreen() {
           </View>
 
           <Text style={styles.quantityNote}>
-            Precio por entrada: ${eventData.price.toLocaleString()}
+            Precio por entrada: S/ {ticketType === 'student' ? '0.00' : '5.00'}
           </Text>
         </View>
 
@@ -298,6 +615,9 @@ export default function PurchaseScreen() {
             value={userInfo.name}
             onChangeText={(text) => setUserInfo(prev => ({ ...prev, name: text }))}
             leftIcon="person-outline"
+            returnKeyType="next"
+            blurOnSubmit={false}
+            autoCapitalize="words"
           />
 
           <Input
@@ -308,6 +628,8 @@ export default function PurchaseScreen() {
             leftIcon="mail-outline"
             keyboardType="email-address"
             autoCapitalize="none"
+            returnKeyType="next"
+            blurOnSubmit={false}
           />
 
           <Input
@@ -317,6 +639,8 @@ export default function PurchaseScreen() {
             onChangeText={(text) => setUserInfo(prev => ({ ...prev, phone: text }))}
             leftIcon="call-outline"
             keyboardType="phone-pad"
+            returnKeyType="next"
+            blurOnSubmit={false}
           />
 
           <Input
@@ -326,54 +650,29 @@ export default function PurchaseScreen() {
             onChangeText={(text) => setUserInfo(prev => ({ ...prev, document: text }))}
             leftIcon="id-card-outline"
             keyboardType="numeric"
+            returnKeyType="done"
           />
         </View>
 
-        {/* Payment Methods */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Método de Pago</Text>
+        {/* Payment Methods - Solo mostrar si el monto es mayor a 0 */}
+        {calculateTotal() > 0 && (
+          <PaymentMethodSelector
+            selectedMethod={selectedPayment as PaymentMethod}
+            onSelect={(method) => setSelectedPayment(method)}
+          />
+        )}
 
-          {PAYMENT_METHODS.map((method) => (
-            <TouchableOpacity
-              key={method.id}
-              style={[
-                styles.paymentMethod,
-                selectedPayment === method.id && styles.paymentMethodSelected
-              ]}
-              onPress={() => setSelectedPayment(method.id)}
-            >
-              <View style={styles.paymentMethodContent}>
-                <Ionicons
-                  name={method.icon}
-                  size={24}
-                  color={selectedPayment === method.id ? Colors.light.primary : Colors.light.icon}
-                />
-                <View style={styles.paymentMethodInfo}>
-                  <Text style={[
-                    styles.paymentMethodName,
-                    selectedPayment === method.id && styles.paymentMethodNameSelected
-                  ]}>
-                    {method.name}
-                  </Text>
-                  {method.fee && (
-                    <Text style={styles.paymentMethodFee}>
-                      Tarifa: ${method.fee.toLocaleString()}
-                    </Text>
-                  )}
-                </View>
-              </View>
-
-              <View style={[
-                styles.radioButton,
-                selectedPayment === method.id && styles.radioButtonSelected
-              ]}>
-                {selectedPayment === method.id && (
-                  <View style={styles.radioButtonInner} />
-                )}
-              </View>
-            </TouchableOpacity>
-          ))}
-        </View>
+        {/* Mensaje para tickets gratuitos */}
+        {calculateTotal() === 0 && (
+          <View style={styles.section}>
+            <View style={styles.freeTicketNotice}>
+              <Ionicons name="information-circle" size={24} color={Colors.dark.primary} />
+              <Text style={styles.freeTicketText}>
+                ✨ Las entradas de estudiante son completamente GRATIS. No necesitas seleccionar un método de pago.
+              </Text>
+            </View>
+          </View>
+        )}
 
         {/* Order Summary */}
         <View style={styles.section}>
@@ -382,49 +681,52 @@ export default function PurchaseScreen() {
           <View style={styles.summaryCard}>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>
-                {quantity} entrada{quantity > 1 ? 's' : ''} {eventData.ticketType}
+                {quantity} entrada{quantity > 1 ? 's' : ''} ({ticketType === 'student' ? 'Estudiante' : 'General'})
               </Text>
               <Text style={styles.summaryValue}>
-                ${(eventData.price * quantity).toLocaleString()}
+                S/ {((ticketType === 'student' ? 0 : 5) * quantity).toFixed(2)}
               </Text>
             </View>
 
-            {selectedPayment && PAYMENT_METHODS.find(m => m.id === selectedPayment)?.fee && (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Tarifa de procesamiento</Text>
-                <Text style={styles.summaryValue}>
-                  ${PAYMENT_METHODS.find(m => m.id === selectedPayment)?.fee?.toLocaleString()}
-                </Text>
-              </View>
-            )}
 
             <View style={[styles.summaryRow, styles.summaryTotal]}>
               <Text style={styles.summaryTotalLabel}>Total</Text>
               <Text style={styles.summaryTotalValue}>
-                ${calculateTotal().toLocaleString()}
+                S/ {calculateTotal().toFixed(2)}
               </Text>
             </View>
           </View>
         </View>
-      </ScrollView>
+      </FormContainer>
 
       {/* Purchase Button */}
-      <View style={styles.purchaseContainer}>
+      <View style={[styles.purchaseContainer, { paddingBottom: Math.max(insets.bottom, Spacing.md) }]}>
         <Button
-          title={isProcessing ? 'Procesando...' : `Pagar $${calculateTotal().toLocaleString()}`}
+          title={isProcessing
+            ? (calculateTotal() === 0 ? 'Generando entradas...' : 'Procesando pago...')
+            : (calculateTotal() === 0 ? '🎓 Obtener Entradas Gratis' : `Pagar S/ ${calculateTotal().toFixed(2)}`)
+          }
           onPress={handlePurchase}
           style={styles.purchaseButton}
-          disabled={isProcessing}
+          disabled={isProcessing || (calculateTotal() > 0 && !selectedPayment)}
         />
         {isProcessing && (
-          <ActivityIndicator
-            size="small"
-            color={Colors.light.primary}
-            style={{ marginTop: Spacing.sm }}
-          />
+          <View style={styles.processingContainer}>
+            <ActivityIndicator
+              size="small"
+              color={Colors.dark.primary}
+              style={{ marginRight: Spacing.xs }}
+            />
+            <Text style={styles.processingText}>
+              {calculateTotal() === 0
+                ? 'Generando tus entradas gratuitas...'
+                : 'Confirmando tu pago de forma segura...'
+              }
+            </Text>
+          </View>
         )}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -447,8 +749,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  scrollView: {
-    flex: 1,
+  scrollContent: {
+    paddingBottom: Spacing.xl,
   },
   eventCard: {
     backgroundColor: Colors.dark.surface,
@@ -456,7 +758,12 @@ const styles = StyleSheet.create({
     padding: Spacing.lg,
     borderRadius: BorderRadius.xl,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(0, 208, 132, 0.2)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
   eventTitle: {
     fontSize: FontSizes.xl,
@@ -526,6 +833,43 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.sm,
     color: '#94A3B8',
     textAlign: 'center',
+  },
+  ticketTypeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.dark.surface,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  ticketTypeOptionSelected: {
+    borderColor: Colors.dark.primary,
+    backgroundColor: 'rgba(0, 208, 132, 0.1)',
+  },
+  ticketTypeContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  ticketTypeInfo: {
+    marginLeft: Spacing.md,
+    flex: 1,
+  },
+  ticketTypeName: {
+    fontSize: FontSizes.md,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  ticketTypeNameSelected: {
+    color: Colors.dark.primary,
+  },
+  ticketTypePrice: {
+    fontSize: FontSizes.sm,
+    color: '#94A3B8',
+    marginTop: Spacing.xs / 2,
   },
   paymentMethod: {
     flexDirection: 'row',
@@ -625,8 +969,42 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.dark.background,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.1)',
+    // paddingBottom will be dynamic with insets
   },
   purchaseButton: {
     backgroundColor: Colors.dark.primary,
+    shadowColor: Colors.dark.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  processingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  processingText: {
+    fontSize: FontSizes.sm,
+    color: Colors.dark.primary,
+    fontWeight: '600',
+  },
+  freeTicketNotice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 208, 132, 0.1)',
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: Colors.dark.primary,
+    gap: Spacing.md,
+  },
+  freeTicketText: {
+    flex: 1,
+    fontSize: FontSizes.md,
+    color: Colors.dark.textLight,
+    lineHeight: 22,
   },
 });

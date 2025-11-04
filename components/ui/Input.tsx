@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, forwardRef, useMemo } from 'react';
 import {
   View,
   TextInput,
@@ -7,6 +7,7 @@ import {
   StyleSheet,
   ViewStyle,
   TextInputProps,
+  useColorScheme,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSizes, Spacing, BorderRadius } from '@/constants/theme';
@@ -22,7 +23,7 @@ interface InputProps extends TextInputProps {
   variant?: 'default' | 'outline' | 'filled';
 }
 
-const Input: React.FC<InputProps> = ({
+const Input = forwardRef<TextInput, InputProps>(({
   label,
   error,
   helperText,
@@ -33,63 +34,67 @@ const Input: React.FC<InputProps> = ({
   variant = 'outline',
   style,
   secureTextEntry,
+  onFocus,
+  onBlur,
   ...textInputProps
-}) => {
+}, ref) => {
+  const colorScheme = useColorScheme();
   const [isFocused, setIsFocused] = useState(false);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
 
   const isPassword = secureTextEntry;
   const shouldShowPassword = isPassword && !isPasswordVisible;
 
-  const getInputContainerStyle = () => {
-    const baseStyle = {
-      flexDirection: 'row' as const,
-      alignItems: 'center' as const,
-      paddingHorizontal: Spacing.md,
-      paddingVertical: Spacing.sm,
-      borderRadius: BorderRadius.lg,
-    };
+  const isDark = colorScheme === 'dark';
+  const palette = useMemo(() => isDark ? Colors.dark : Colors.light, [isDark]);
 
-    if (variant === 'filled') {
-      return {
-        ...baseStyle,
-        backgroundColor: '#2A2A2A',
-        borderWidth: 0,
-      };
-    }
-
-    return {
-      ...baseStyle,
-      borderWidth: 1,
-      borderColor: error
-        ? Colors.dark.error
-        : isFocused
-        ? Colors.dark.primary
-        : 'rgba(255, 255, 255, 0.15)',
-      backgroundColor: '#2A2A2A',
-    };
+  const handleFocus = (e: any) => {
+    setIsFocused(true);
+    onFocus?.(e);
   };
+
+  const handleBlur = (e: any) => {
+    setIsFocused(false);
+    onBlur?.(e);
+  };
+
+  const borderColor = useMemo(() => error
+    ? palette.error
+    : isFocused
+    ? palette.primary
+    : isDark
+    ? 'rgba(255, 255, 255, 0.15)'
+    : 'rgba(15, 23, 42, 0.12)', [error, isFocused, isDark, palette]);
+
+  const backgroundColor = useMemo(() => isFocused
+    ? (isDark ? palette.surface : palette.surfaceElevated)
+    : (isDark ? palette.backgroundSecondary : palette.surface), [isFocused, isDark, palette]);
 
   return (
     <View style={[styles.container, containerStyle]}>
-      {label && <Text style={styles.label}>{label}</Text>}
+      {label && <Text style={[styles.label, { color: palette.text }]}>{label}</Text>}
 
-      <View style={getInputContainerStyle()}>
+      <View style={[styles.inputContainer, { borderColor, backgroundColor }]}>
         {leftIcon && (
           <Ionicons
             name={leftIcon}
             size={20}
-            color="#94A3B8"
+            color={palette.textSecondary}
             style={styles.leftIcon}
           />
         )}
 
         <TextInput
-          style={[styles.input, style]}
+          ref={ref}
+          style={[styles.input, { color: palette.text }, style]}
           secureTextEntry={shouldShowPassword}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-          placeholderTextColor="#64748B"
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          placeholderTextColor={palette.textSecondary}
+          autoCorrect={false}
+          autoComplete="off"
+          textContentType="none"
+          underlineColorAndroid="transparent"
           {...textInputProps}
         />
 
@@ -97,43 +102,60 @@ const Input: React.FC<InputProps> = ({
           <TouchableOpacity
             onPress={() => setIsPasswordVisible(!isPasswordVisible)}
             style={styles.rightIcon}
+            activeOpacity={0.7}
           >
             <Ionicons
               name={isPasswordVisible ? 'eye-off' : 'eye'}
               size={20}
-              color="#94A3B8"
+              color={palette.textSecondary}
             />
           </TouchableOpacity>
         )}
 
         {rightIcon && !isPassword && (
-          <TouchableOpacity onPress={onRightIconPress} style={styles.rightIcon}>
-            <Ionicons name={rightIcon} size={20} color="#94A3B8" />
+          <TouchableOpacity
+            onPress={onRightIconPress}
+            style={styles.rightIcon}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={rightIcon} size={20} color={palette.textSecondary} />
           </TouchableOpacity>
         )}
       </View>
 
-      {error && <Text style={styles.errorText}>{error}</Text>}
-      {helperText && !error && <Text style={styles.helperText}>{helperText}</Text>}
+      {error && <Text style={[styles.errorText, { color: palette.error }]}>{error}</Text>}
+      {helperText && !error && <Text style={[styles.helperText, { color: palette.textSecondary }]}>{helperText}</Text>}
     </View>
   );
-};
+});
+
+Input.displayName = 'Input';
 
 const styles = StyleSheet.create({
   container: {
     marginBottom: Spacing.md,
+    width: '100%',
   },
   label: {
     fontSize: FontSizes.sm,
     fontWeight: '600',
-    color: '#FFFFFF',
     marginBottom: Spacing.xs,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm + 2,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 2,
+    minHeight: 48,
   },
   input: {
     flex: 1,
     fontSize: FontSizes.md,
-    color: '#FFFFFF',
     paddingVertical: Spacing.sm,
+    paddingHorizontal: 0,
+    margin: 0,
   },
   leftIcon: {
     marginRight: Spacing.sm,
@@ -144,12 +166,10 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: FontSizes.xs,
-    color: Colors.dark.error,
     marginTop: Spacing.xs,
   },
   helperText: {
     fontSize: FontSizes.xs,
-    color: '#94A3B8',
     marginTop: Spacing.xs,
   },
 });

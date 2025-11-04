@@ -154,7 +154,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     try {
       console.log('📝 Attempting signup for:', email);
 
-      // 1. Crear usuario en auth.users
+      // Crear usuario en auth.users
+      // El trigger 'on_auth_user_created' creará automáticamente el perfil en public.users
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email,
         password,
@@ -188,40 +189,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       }
 
       console.log('✅ Auth user created:', authData.user.id);
+      console.log('✅ User profile will be created automatically by database trigger');
 
-      // 2. Crear perfil en public.users
-      console.log('📝 Creating user profile...');
-      const { error: profileError } = await supabase
-        .from('users')
-        .insert({
-          id: authData.user.id,
-          name,
-          email,
-          role: 'client', // Por defecto, todos son clientes
-        });
-
-      if (profileError) {
-        console.error('❌ Profile creation error:', profileError);
-        console.error('Profile error code:', profileError.code);
-        console.error('Profile error message:', profileError.message);
-        console.error('Profile error details:', JSON.stringify(profileError, null, 2));
-
-        // Intentar eliminar el usuario de auth si falló la creación del perfil
-        await supabase.auth.signOut();
-
-        if (profileError.code === '23505') { // Unique violation
-          return { success: false, error: 'Este usuario ya existe' };
-        }
-
-        return { success: false, error: `Error al crear el perfil: ${profileError.message}` };
-      }
-
-      console.log('✅ User profile created successfully');
-
+      // El perfil se crea automáticamente mediante el trigger 'on_auth_user_created'
       // El perfil se cargará automáticamente por el listener onAuthStateChange
-      if (router.canGoBack()) {
-        router.back();
-      }
 
       return { success: true };
     } catch (error: any) {

@@ -7,6 +7,15 @@ import { supabase } from '@/lib/supabase';
 import { Event } from '@/types/ticket.types';
 import { AppError, ErrorCode, Result, Ok, Err, ErrorHandler } from '@/utils/errors';
 
+const toNumber = (value: unknown, fallback = 0): number => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : fallback;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 export class EventService {
   /**
    * Get all active events
@@ -17,7 +26,7 @@ export class EventService {
         .from('events')
         .select('*')
         .eq('status', 'active')
-        .gte('date', new Date().toISOString().split('T')[0]) // Only future events
+        // Removido filtro de fecha para mostrar TODOS los eventos activos
         .order('date', { ascending: true });
 
       if (error) {
@@ -43,8 +52,10 @@ export class EventService {
         time: e.time,
         location: e.location,
         venue: e.venue || undefined,
-        price: e.price,
-        availableTickets: e.available_tickets,
+        price: toNumber(e.price),
+        studentPrice: toNumber(e.student_price),
+        generalPrice: toNumber(e.general_price, 5),
+        availableTickets: toNumber(e.available_tickets, 0),
         category: e.category || undefined,
         rating: e.rating || undefined,
       }));
@@ -98,8 +109,10 @@ export class EventService {
         time: data.time,
         location: data.location,
         venue: data.venue || undefined,
-        price: data.price,
-        availableTickets: data.available_tickets,
+        price: toNumber(data.price),
+        studentPrice: toNumber(data.student_price),
+        generalPrice: toNumber(data.general_price, 5),
+        availableTickets: toNumber(data.available_tickets, 0),
         category: data.category || undefined,
         rating: data.rating || undefined,
       };
@@ -143,6 +156,8 @@ export class EventService {
           location: event.location,
           venue: event.venue,
           price: event.price,
+          student_price: event.studentPrice || 0,
+          general_price: event.generalPrice || 5.00,
           available_tickets: event.availableTickets,
           total_tickets: event.availableTickets,
           category: event.category,
@@ -172,8 +187,10 @@ export class EventService {
         time: data.time,
         location: data.location,
         venue: data.venue || undefined,
-        price: data.price,
-        availableTickets: data.available_tickets,
+        price: toNumber(data.price),
+        studentPrice: toNumber(data.student_price),
+        generalPrice: toNumber(data.general_price, 5),
+        availableTickets: toNumber(data.available_tickets, 0),
         category: data.category || undefined,
         rating: data.rating || undefined,
       };
@@ -216,6 +233,8 @@ export class EventService {
       if (updates.location !== undefined) updateData.location = updates.location;
       if (updates.venue !== undefined) updateData.venue = updates.venue;
       if (updates.price !== undefined) updateData.price = updates.price;
+      if (updates.studentPrice !== undefined) updateData.student_price = updates.studentPrice;
+      if (updates.generalPrice !== undefined) updateData.general_price = updates.generalPrice;
       if (updates.availableTickets !== undefined) updateData.available_tickets = updates.availableTickets;
       if (updates.category !== undefined) updateData.category = updates.category;
       if (updates.rating !== undefined) updateData.rating = updates.rating;
@@ -246,8 +265,10 @@ export class EventService {
         time: data.time,
         location: data.location,
         venue: data.venue || undefined,
-        price: data.price,
-        availableTickets: data.available_tickets,
+        price: toNumber(data.price),
+        studentPrice: toNumber(data.student_price),
+        generalPrice: toNumber(data.general_price, 5),
+        availableTickets: toNumber(data.available_tickets, 0),
         category: data.category || undefined,
         rating: data.rating || undefined,
       };
@@ -319,7 +340,7 @@ export class EventService {
         .select('*')
         .eq('status', 'active')
         .eq('category', category)
-        .gte('date', new Date().toISOString().split('T')[0])
+        // Removido filtro de fecha para mostrar todos los eventos
         .order('date', { ascending: true });
 
       if (error) {
@@ -345,8 +366,10 @@ export class EventService {
         time: e.time,
         location: e.location,
         venue: e.venue || undefined,
-        price: e.price,
-        availableTickets: e.available_tickets,
+        price: toNumber(e.price),
+        studentPrice: toNumber(e.student_price),
+        generalPrice: toNumber(e.general_price, 5),
+        availableTickets: toNumber(e.available_tickets, 0),
         category: e.category || undefined,
         rating: e.rating || undefined,
       }));

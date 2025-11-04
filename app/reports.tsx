@@ -4,13 +4,13 @@ import {
   ScrollView,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   TouchableOpacity,
   FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button, Badge } from '@/components/ui';
 import { Colors, FontSizes, Spacing, BorderRadius, Shadows } from '@/constants/theme';
 
