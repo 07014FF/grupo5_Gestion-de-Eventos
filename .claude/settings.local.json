@@ -70,7 +70,8 @@
       "Bash(if exist android dir android)",
       "Bash(if exist ios dir ios)",
       "Bash(if exist eas.json dir eas.json)",
-      "Bash(npm cache clean:*)"
+      "Bash(npm cache clean:*)",
+      "WebFetch(domain:apidocs.culqi.com)"
     ],
     "deny": [],
     "ask": []

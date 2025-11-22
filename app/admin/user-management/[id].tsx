@@ -96,9 +96,6 @@ export default function UserDetailScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedText style={styles.label}>Name:</ThemedText>
-      <ThemedText style={styles.value}>{user.fullName}</ThemedText>
-
       <ThemedText style={styles.label}>Email:</ThemedText>
       <ThemedText style={styles.value}>{user.email}</ThemedText>
 

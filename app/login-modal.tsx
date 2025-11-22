@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Stack, router } from 'expo-router';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import {
   ActivityIndicator,
@@ -92,13 +92,17 @@ export default function LoginModal() {
     } finally {
       setIsLoading(false);
     }
-  }, [signup, form]);
+    // form.reset is stable from react-hook-form, safe to omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signup]);
 
   const toggleMode = useCallback(() => {
     Keyboard.dismiss();
     setMode(prevMode => prevMode === 'login' ? 'signup' : 'login');
     form.reset({ name: '', email: '', password: '' });
-  }, [form]);
+    // form.reset is stable from react-hook-form, safe to omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleBackPress = useCallback(() => {
     Keyboard.dismiss();
@@ -107,16 +111,20 @@ export default function LoginModal() {
 
   const onSubmit = useCallback(() => {
     form.handleSubmit(mode === 'login' ? handleLogin : handleSignup)();
-  }, [mode, handleLogin, handleSignup, form]);
+    // form.handleSubmit is stable from react-hook-form, safe to omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, handleLogin, handleSignup]);
+
+  // Configurar opciones de Stack fuera del render principal
+  const screenOptions = useMemo(() => ({
+    title: mode === 'login' ? 'Iniciar Sesión' : 'Crear Cuenta',
+    headerShown: true,
+  }), [mode]);
 
   return (
-    <FormContainer contentContainerStyle={styles.formWrapper}>
-      <Stack.Screen
-        options={{
-          title: mode === 'login' ? 'Iniciar Sesión' : 'Crear Cuenta',
-          headerShown: true,
-        }}
-      />
+    <>
+      <Stack.Screen options={screenOptions} />
+      <FormContainer contentContainerStyle={styles.formWrapper}>
 
       <TouchableOpacity
         style={styles.backButton}
@@ -212,7 +220,8 @@ export default function LoginModal() {
           </TouchableOpacity>
         </>
       )}
-    </FormContainer>
+      </FormContainer>
+    </>
   );
 }
 

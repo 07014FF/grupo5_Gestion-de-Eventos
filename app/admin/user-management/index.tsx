@@ -46,12 +46,22 @@ const ROLE_CONFIG = {
   },
 };
 
+const FILTER_OPTIONS = [
+  { label: 'Todos', value: 'all', icon: 'layers-outline' as const },
+  { label: 'Admins', value: 'admin', icon: 'shield-checkmark-outline' as const },
+  { label: 'Validadores', value: 'qr_validator', icon: 'qr-code-outline' as const },
+  { label: 'Clientes', value: 'client', icon: 'people-outline' as const },
+] as const;
+
+type FilterValue = (typeof FILTER_OPTIONS)[number]['value'];
+
 export default function UserManagementScreen() {
   const router = useRouter();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<FilterValue>('all');
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -75,12 +85,24 @@ export default function UserManagementScreen() {
   }, [fetchUsers]);
 
   const filteredUsers = useMemo(() => {
-    return users.filter(
-      (user) =>
-        user.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        user.role?.toLowerCase().includes(searchQuery.toLowerCase())
-    );
-  }, [users, searchQuery]);
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+
+    return users.filter((user) => {
+      const matchesQuery =
+        !normalizedQuery ||
+        user.email?.toLowerCase().includes(normalizedQuery) ||
+        user.role?.toLowerCase().includes(normalizedQuery);
+
+      const matchesFilter =
+        activeFilter === 'all'
+          ? true
+          : activeFilter === 'admin'
+            ? user.role === 'admin' || user.role === 'super_admin'
+            : user.role === activeFilter;
+
+      return matchesQuery && matchesFilter;
+    });
+  }, [users, searchQuery, activeFilter]);
 
   const stats = useMemo(() => {
     return {
@@ -122,11 +144,14 @@ export default function UserManagementScreen() {
               </Text>
 
               {/* Role Badge */}
-              <View style={[styles.roleBadge, { backgroundColor: roleConfig.bgColor }]}>
-                <Ionicons name={roleConfig.icon} size={12} color={roleConfig.color} />
-                <Text style={[styles.roleText, { color: roleConfig.color }]}>
-                  {roleConfig.label}
-                </Text>
+              <View style={styles.userMetaRow}>
+                <View style={[styles.roleBadge, { backgroundColor: roleConfig.bgColor }]}>
+                  <Ionicons name={roleConfig.icon} size={12} color={roleConfig.color} />
+                  <Text style={[styles.roleText, { color: roleConfig.color }]}>
+                    {roleConfig.label}
+                  </Text>
+                </View>
+                <Text style={styles.userMetaHint}>Toca para gestionar</Text>
               </View>
             </View>
 
@@ -138,6 +163,88 @@ export default function UserManagementScreen() {
     },
     [router]
   );
+
+  const renderListHeader = useCallback(() => (
+    <View style={styles.preList}>
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionCardHeader}>
+          <Text style={styles.sectionTitle}>Resumen de roles</Text>
+          <Text style={styles.sectionSubtitle}>Usuarios activos en cada perfil</Text>
+        </View>
+        <View style={styles.statsContainer}>
+          <View style={[styles.statCard, { backgroundColor: 'rgba(220, 38, 38, 0.1)' }]}>
+            <Ionicons name="shield-checkmark" size={20} color="#DC2626" />
+            <Text style={[styles.statValue, { color: '#DC2626' }]}>{stats.admins}</Text>
+            <Text style={styles.statLabel}>Admins</Text>
+          </View>
+
+          <View style={[styles.statCard, { backgroundColor: 'rgba(124, 58, 237, 0.1)' }]}>
+            <Ionicons name="qr-code" size={20} color="#7C3AED" />
+            <Text style={[styles.statValue, { color: '#7C3AED' }]}>{stats.validators}</Text>
+            <Text style={styles.statLabel}>Validadores</Text>
+          </View>
+
+          <View style={[styles.statCard, { backgroundColor: 'rgba(5, 150, 105, 0.1)' }]}>
+            <Ionicons name="people" size={20} color="#059669" />
+            <Text style={[styles.statValue, { color: '#059669' }]}>{stats.clients}</Text>
+            <Text style={styles.statLabel}>Clientes</Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionCardHeader}>
+          <Text style={styles.sectionTitle}>Búsqueda y filtros</Text>
+          <Text style={styles.sectionSubtitle}>Encuentra rápidamente al usuario correcto</Text>
+        </View>
+        <View style={styles.searchContainer}>
+          <Input
+            placeholder="Buscar por nombre, email o rol..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            leftIcon="search"
+            style={styles.searchInput}
+          />
+        </View>
+        <View style={styles.filterRow}>
+          {FILTER_OPTIONS.map((filter) => (
+            <TouchableOpacity
+              key={filter.value}
+              style={[
+                styles.filterChip,
+                activeFilter === filter.value && styles.filterChipActive,
+              ]}
+              onPress={() => setActiveFilter(filter.value)}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name={filter.icon}
+                size={14}
+                color={activeFilter === filter.value ? Colors.dark.text : Colors.dark.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.filterChipText,
+                  activeFilter === filter.value && styles.filterChipTextActive,
+                ]}
+              >
+                {filter.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <View style={styles.metaStrip}>
+          <Text style={styles.metaText}>Mostrando {filteredUsers.length} usuarios</Text>
+          <Text style={styles.metaHint}>Total registrados: {stats.total}</Text>
+        </View>
+      </View>
+
+      <View style={styles.listHeaderRow}>
+        <Text style={styles.listHeaderTitle}>Usuarios</Text>
+        <Text style={styles.listHeaderSubtitle}>Selecciona un usuario para gestionar su rol</Text>
+      </View>
+    </View>
+  ), [activeFilter, filteredUsers.length, searchQuery, stats.admins, stats.clients, stats.total, stats.validators]);
 
   if (loading) {
     return (
@@ -169,44 +276,13 @@ export default function UserManagementScreen() {
         </View>
       </LinearGradient>
 
-      {/* Stats Cards */}
-      <View style={styles.statsContainer}>
-        <View style={[styles.statCard, { backgroundColor: 'rgba(220, 38, 38, 0.1)' }]}>
-          <Ionicons name="shield-checkmark" size={20} color="#DC2626" />
-          <Text style={[styles.statValue, { color: '#DC2626' }]}>{stats.admins}</Text>
-          <Text style={styles.statLabel}>Admins</Text>
-        </View>
-
-        <View style={[styles.statCard, { backgroundColor: 'rgba(124, 58, 237, 0.1)' }]}>
-          <Ionicons name="qr-code" size={20} color="#7C3AED" />
-          <Text style={[styles.statValue, { color: '#7C3AED' }]}>{stats.validators}</Text>
-          <Text style={styles.statLabel}>Validadores</Text>
-        </View>
-
-        <View style={[styles.statCard, { backgroundColor: 'rgba(5, 150, 105, 0.1)' }]}>
-          <Ionicons name="people" size={20} color="#059669" />
-          <Text style={[styles.statValue, { color: '#059669' }]}>{stats.clients}</Text>
-          <Text style={styles.statLabel}>Clientes</Text>
-        </View>
-      </View>
-
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <Input
-          placeholder="Buscar por nombre, email o rol..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          leftIcon="search"
-          style={styles.searchInput}
-        />
-      </View>
-
       {/* Users List */}
       <FlatList
         data={filteredUsers}
         keyExtractor={(item) => item.id}
         renderItem={renderUserCard}
         contentContainerStyle={styles.listContent}
+        ListHeaderComponent={renderListHeader}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -272,12 +348,33 @@ const styles = StyleSheet.create({
     fontSize: FontSizes.sm,
     color: AdminColors.headingSecondary,
   },
+  preList: {
+    gap: Spacing.lg,
+    marginBottom: Spacing.lg,
+  },
+  sectionCard: {
+    backgroundColor: AdminColors.cardBackground,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: AdminColors.borderMedium,
+    gap: Spacing.md,
+  },
+  sectionCardHeader: {
+    gap: Spacing.xs,
+  },
+  sectionTitle: {
+    fontSize: FontSizes.lg,
+    fontWeight: '700',
+    color: AdminColors.headingPrimary,
+  },
+  sectionSubtitle: {
+    fontSize: FontSizes.sm,
+    color: AdminColors.headingSecondary,
+  },
   statsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.lg,
     gap: Spacing.md,
-    marginTop: -Spacing.xl,
-    marginBottom: Spacing.lg,
   },
   statCard: {
     flex: 1,
@@ -300,15 +397,72 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xs,
   },
   searchContainer: {
-    paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   searchInput: {
     marginBottom: 0,
   },
+  filterRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: AdminColors.borderMedium,
+  },
+  filterChipActive: {
+    backgroundColor: 'rgba(0, 208, 132, 0.15)',
+    borderColor: Colors.dark.primary,
+  },
+  filterChipText: {
+    fontSize: FontSizes.xs,
+    color: AdminColors.bodySecondary,
+    fontWeight: '600',
+  },
+  filterChipTextActive: {
+    color: AdminColors.headingPrimary,
+  },
+  metaStrip: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: AdminColors.borderSubtle,
+  },
+  metaText: {
+    fontSize: FontSizes.sm,
+    color: AdminColors.headingPrimary,
+    fontWeight: '600',
+  },
+  metaHint: {
+    fontSize: FontSizes.xs,
+    color: AdminColors.bodySecondary,
+  },
+  listHeaderRow: {
+    gap: Spacing.xs,
+  },
+  listHeaderTitle: {
+    fontSize: FontSizes.xl,
+    fontWeight: '800',
+    color: AdminColors.headingPrimary,
+  },
+  listHeaderSubtitle: {
+    fontSize: FontSizes.sm,
+    color: AdminColors.bodySecondary,
+  },
   listContent: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.xl,
+    gap: Spacing.md,
   },
   userCard: {
     backgroundColor: AdminColors.cardBackground,
@@ -359,7 +513,6 @@ const styles = StyleSheet.create({
   roleBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
     borderRadius: BorderRadius.sm,
@@ -368,5 +521,14 @@ const styles = StyleSheet.create({
   roleText: {
     fontSize: FontSizes.xs,
     fontWeight: '600',
+  },
+  userMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  userMetaHint: {
+    fontSize: FontSizes.xs,
+    color: AdminColors.bodySecondary,
   },
 });

@@ -1,8 +1,10 @@
+import { CulqiCardForm } from '@/components/payment/CulqiCardForm';
 import { ManualQRPayment } from '@/components/payment/ManualQRPayment';
 import { PaymentMethodSelector } from '@/components/payment/PaymentMethodSelector';
 import { Button, FormContainer, Input } from '@/components/ui';
 import { BorderRadius, Colors, FontSizes, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
+import { CulqiService, CulqiToken } from '@/services/culqi.service';
 import { PaymentGateway, PaymentService } from '@/services/payment.service';
 import { TicketServiceSupabase } from '@/services/ticket.service.supabase';
 import { purchaseParamsSchema, type PurchaseParams } from '@/types/navigation.types';
@@ -92,6 +94,7 @@ export default function PurchaseScreen() {
   );
   const [selectedPayment, setSelectedPayment] = useState<string>('');
   const [showQRPayment, setShowQRPayment] = useState(false);
+  const [showCardForm, setShowCardForm] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [ticketType, setTicketType] = useState<'student' | 'general'>(
     parsedParams.ticketType === 'student' ? 'student' : 'general'
@@ -122,6 +125,16 @@ export default function PurchaseScreen() {
 
   const handleQuantityChange = (increment: boolean) => {
     setQuantity((prev) => clampQuantity(prev + (increment ? 1 : -1)));
+  };
+
+  // Handler para cuando se crea el token de Culqi
+  const handleCulqiTokenCreated = async (token: CulqiToken) => {
+    console.log('✅ Token de Culqi recibido:', token.id);
+    setCulqiToken(token);
+    setShowCardForm(false);
+
+    // Procesar pago automáticamente con el token
+    await processCulqiCardPayment(token);
   };
 
   const handleManualPaymentConfirmed = async (transactionRef: string) => {
@@ -235,6 +248,128 @@ export default function PurchaseScreen() {
     }
   };
 
+  // Procesar pago con tarjeta usando token de Culqi
+  const processCulqiCardPayment = async (token: CulqiToken) => {
+    if (!user?.id) {
+      Alert.alert('Error', 'Debes iniciar sesión para comprar entradas');
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      const totalAmount = CulqiService.toCents(calculateTotal());
+      console.log(`💳 Procesando pago de S/ ${CulqiService.fromCents(totalAmount).toFixed(2)}...`);
+
+      // Configurar Culqi como gateway
+      PaymentService.setGateway(PaymentGateway.CULQI);
+
+      // 1. Crear payment intent con el token de Culqi
+      const paymentIntentResult = await PaymentService.createPaymentIntent(
+        totalAmount,
+        'card' as PaymentMethod,
+        {
+          eventId: eventData.id,
+          eventTitle: eventData.title,
+          userId: user.id,
+          quantity,
+          email: userInfo.email,
+          firstName: userInfo.name.split(' ')[0],
+          lastName: userInfo.name.split(' ').slice(1).join(' ') || userInfo.name,
+          phone: userInfo.phone,
+          culqiToken: token.id, // Token de tarjeta
+        }
+      );
+
+      if (!paymentIntentResult.success) {
+        Alert.alert('Error', paymentIntentResult.error.getUserMessage());
+        return;
+      }
+
+      // 2. Procesar pago con Culqi
+      const paymentResult = await PaymentService.processPayment(paymentIntentResult.data);
+
+      if (!paymentResult.success) {
+        Alert.alert('Pago Rechazado', paymentResult.error.getUserMessage());
+        return;
+      }
+
+      const payment = paymentResult.data;
+
+      if (!payment.success || payment.status !== 'completed') {
+        Alert.alert(
+          'Pago Rechazado',
+          payment.errorMessage || 'El pago fue rechazado. Por favor intenta con otra tarjeta.'
+        );
+        return;
+      }
+
+      // 3. Crear tickets en la base de datos
+      const event: Event = {
+        id: eventData.id,
+        title: eventData.title,
+        subtitle: eventData.subtitle,
+        date: eventData.date,
+        time: eventData.time,
+        location: eventData.location,
+        price: eventData.price,
+        availableTickets: eventData.availableTickets,
+      };
+
+      const purchaseUserInfo: UserInfo = {
+        name: userInfo.name,
+        email: userInfo.email,
+        phone: userInfo.phone,
+        document: userInfo.document,
+      };
+
+      const ticketResult = await TicketServiceSupabase.createPurchase(
+        event,
+        quantity,
+        purchaseUserInfo,
+        'card' as PaymentMethod,
+        user.id,
+        {
+          paymentId: payment.paymentId,
+          transactionId: payment.transactionId || '',
+          gateway: 'culqi',
+          metadata: payment.metadata,
+        }
+      );
+
+      if (ticketResult.success) {
+        Alert.alert(
+          '¡Pago Exitoso! 🎉',
+          `Tu pago de S/ ${CulqiService.fromCents(totalAmount).toFixed(2)} ha sido procesado.\n\n` +
+          `Tarjeta: ${payment.metadata?.cardBrand} ****${payment.metadata?.lastFour}\n` +
+          `ID: ${payment.transactionId}\n\n` +
+          `Tus entradas ya están disponibles.`,
+          [
+            {
+              text: 'Ver Mis Entradas',
+              onPress: () => router.replace('/(tabs)/my-tickets'),
+            },
+            {
+              text: 'OK',
+              onPress: () => router.back(),
+            },
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Atención',
+          'El pago se procesó pero hubo un error generando tus entradas. ' +
+          'Contacta a soporte con el ID: ' + payment.paymentId
+        );
+      }
+    } catch (error) {
+      console.error('Error al procesar pago con tarjeta:', error);
+      Alert.alert('Error', 'No se pudo completar el pago. Intenta nuevamente.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handlePurchase = async () => {
     if (!userInfo.name || !userInfo.email) {
       Alert.alert('Error', 'Por favor completa la información requerida');
@@ -281,7 +416,7 @@ export default function PurchaseScreen() {
           event,
           quantity,
           purchaseUserInfo,
-          'free' as PaymentMethod, // Indicar que es gratis
+          'free',
           user.id,
           {
             paymentId: 'FREE_' + Date.now(),
@@ -338,12 +473,17 @@ export default function PurchaseScreen() {
       return;
     }
 
+    // Si es tarjeta, mostrar formulario de Culqi
+    if (selectedPayment === 'card') {
+      setShowCardForm(true);
+      return;
+    }
+
     setIsProcessing(true);
 
     try {
-      // Configurar pasarela de pago (cambiar a WOMPI, STRIPE, etc. según necesites)
-      PaymentService.setGateway(PaymentGateway.MOCK); // Para desarrollo
-      // PaymentService.setGateway(PaymentGateway.WOMPI); // Para producción
+      // Configurar pasarela de pago
+      PaymentService.setGateway(PaymentGateway.CULQI);
 
       // 1. Crear payment intent
       const paymentIntentResult = await PaymentService.createPaymentIntent(
@@ -465,6 +605,21 @@ export default function PurchaseScreen() {
           amount={calculateTotal()}
           onPaymentConfirmed={handleManualPaymentConfirmed}
           onCancel={() => setShowQRPayment(false)}
+        />
+      </Modal>
+
+      {/* Culqi Card Form Modal */}
+      <Modal
+        visible={showCardForm}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setShowCardForm(false)}
+      >
+        <CulqiCardForm
+          amount={CulqiService.toCents(calculateTotal())}
+          email={userInfo.email}
+          onTokenCreated={handleCulqiTokenCreated}
+          onCancel={() => setShowCardForm(false)}
         />
       </Modal>
 

@@ -1,6 +1,7 @@
 import { DarkTheme, DefaultTheme, ThemeProvider as NavThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useMemo } from 'react';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -17,32 +18,40 @@ function AppContent() {
   const { isDark } = useTheme();
 
   // Custom theme based on your Colors configuration
-  const customLightTheme = {
-    ...DefaultTheme,
-    colors: {
-      ...DefaultTheme.colors,
-      primary: Colors.light.primary,
-      background: Colors.light.background,
-      card: Colors.light.surface,
-      text: Colors.light.text,
-      border: Colors.light.border,
-    },
-  };
+  const customLightTheme = useMemo(
+    () => ({
+      ...DefaultTheme,
+      colors: {
+        ...DefaultTheme.colors,
+        primary: Colors.light.primary,
+        background: Colors.light.background,
+        card: Colors.light.surface,
+        text: Colors.light.text,
+        border: Colors.light.border,
+      },
+    }),
+    []
+  );
 
-  const customDarkTheme = {
-    ...DarkTheme,
-    colors: {
-      ...DarkTheme.colors,
-      primary: Colors.dark.primary,
-      background: Colors.dark.background,
-      card: Colors.dark.surface,
-      text: Colors.dark.text,
-      border: Colors.dark.border,
-    },
-  };
+  const customDarkTheme = useMemo(
+    () => ({
+      ...DarkTheme,
+      colors: {
+        ...DarkTheme.colors,
+        primary: Colors.dark.primary,
+        background: Colors.dark.background,
+        card: Colors.dark.surface,
+        text: Colors.dark.text,
+        border: Colors.dark.border,
+      },
+    }),
+    []
+  );
+
+  const navTheme = isDark ? customDarkTheme : customLightTheme;
 
   return (
-    <NavThemeProvider value={isDark ? customDarkTheme : customLightTheme}>
+    <NavThemeProvider value={navTheme}>
             <Stack
               screenOptions={{
                 headerShown: false,

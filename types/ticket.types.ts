@@ -21,6 +21,7 @@ export type PaymentMethod =
   | 'card'      // Tarjeta de Crédito/Débito
   | 'yape'      // Yape (Perú)
   | 'plin'      // Plin (Perú)
+  | 'free'      // Entradas gratuitas / becas
   | 'pse'       // PSE (Colombia) - legacy
   | 'nequi'     // Nequi (Colombia) - legacy
   | 'daviplata' // Daviplata (Colombia) - legacy

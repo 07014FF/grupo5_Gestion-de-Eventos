@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, PropsWithChildren, useEffect } from 'react';
+import React, { createContext, useState, useContext, PropsWithChildren, useEffect, useCallback, useMemo } from 'react';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
@@ -103,7 +103,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   };
 
   // Inicio de sesión con Supabase
-  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = useCallback(async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
       console.log('🔐 Attempting login for:', email);
 
@@ -147,10 +147,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       console.error('Exception stack:', error?.stack);
       return { success: false, error: error?.message || 'Error al iniciar sesión. Intenta nuevamente.' };
     }
-  };
+  }, []);
 
   // Registro de nuevo usuario
-  const signup = async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
+  const signup = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
     try {
       console.log('📝 Attempting signup for:', email);
 
@@ -201,10 +201,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       console.error('Exception stack:', error?.stack);
       return { success: false, error: error?.message || 'Error al registrar usuario. Intenta nuevamente.' };
     }
-  };
+  }, []);
 
   // Cierre de sesión
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       await supabase.auth.signOut();
       setUser(null);
@@ -212,10 +212,15 @@ export function AuthProvider({ children }: PropsWithChildren) {
     } catch (error) {
       console.error('Logout error:', error);
     }
-  };
+  }, []);
+
+  const value = useMemo(
+    () => ({ user, session, loading, login, signup, logout }),
+    [user, session, loading, login, signup, logout]
+  );
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, login, signup, logout }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
