@@ -9,15 +9,18 @@ import {
   RefreshControl,
   StatusBar,
   Platform,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { User, getUsers } from '@/services/user.service';
+import { User, getUsers, updateUserRole, UserRole } from '@/services/user.service';
 import Input from '@/components/ui/Input';
 import { Colors, Spacing, FontSizes, BorderRadius, AdminGradients, AdminColors } from '@/constants/theme';
 import EmptyState from '@/components/ui/EmptyState';
+import { useAuth } from '@/context/AuthContext';
+import { ActivityLogEntry, ActivityLogService } from '@/services/activity-log.service';
 
 const ROLE_CONFIG = {
   super_admin: {
@@ -57,11 +60,16 @@ type FilterValue = (typeof FILTER_OPTIONS)[number]['value'];
 
 export default function UserManagementScreen() {
   const router = useRouter();
+  const { user: currentUser } = useAuth();
+  const isSuperAdmin = currentUser?.role === 'super_admin';
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterValue>('all');
+  const [roleUpdating, setRoleUpdating] = useState<Record<string, UserRole | null>>({});
+  const [recentActivity, setRecentActivity] = useState<ActivityLogEntry[]>([]);
+  const [activityLoading, setActivityLoading] = useState(true);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -75,14 +83,27 @@ export default function UserManagementScreen() {
     }
   }, []);
 
+  const fetchActivity = useCallback(async () => {
+    try {
+      setActivityLoading(true);
+      const data = await ActivityLogService.getRecentLogs(5);
+      setRecentActivity(data);
+    } catch (error) {
+      console.error('Error fetching activity log:', error);
+    } finally {
+      setActivityLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchUsers();
-  }, [fetchUsers]);
+    fetchActivity();
+  }, [fetchUsers, fetchActivity]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchUsers();
-  }, [fetchUsers]);
+    await Promise.all([fetchUsers(), fetchActivity()]);
+  }, [fetchUsers, fetchActivity]);
 
   const filteredUsers = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -113,28 +134,129 @@ export default function UserManagementScreen() {
     };
   }, [users]);
 
-  const getRoleConfig = (role: string | null) => {
+  const getRoleConfig = useCallback((role: UserRole | null) => {
     if (!role) return ROLE_CONFIG.client;
     return ROLE_CONFIG[role as keyof typeof ROLE_CONFIG] || ROLE_CONFIG.client;
-  };
+  }, []);
+
+  const handleQuickRoleUpdate = useCallback(
+    async (userId: string, targetRole: Extract<UserRole, 'admin' | 'qr_validator'>) => {
+      if (!isSuperAdmin) return;
+      if (!currentUser?.id) {
+        Alert.alert('Acción no permitida', 'Tu sesión no está disponible. Intenta nuevamente.');
+        return;
+      }
+      if (userId === currentUser?.id) {
+        Alert.alert('Acción no permitida', 'No puedes modificar tu propio rol desde este panel.');
+        return;
+      }
+
+      setRoleUpdating((prev) => ({ ...prev, [userId]: targetRole }));
+      try {
+        const updatedUser = await updateUserRole(userId, targetRole, {
+          performedBy: currentUser.id,
+          previousRole: users.find((u) => u.id === userId)?.role ?? null,
+          context: 'quick_action',
+          actorEmail: currentUser.email,
+        });
+        setUsers((prev) => prev.map((user) => (user.id === userId ? updatedUser : user)));
+        const feedback = getRoleConfig(updatedUser.role).label;
+        Alert.alert('Rol actualizado', `El usuario ahora es ${feedback}.`);
+        fetchActivity();
+      } catch (error) {
+        console.error('Error updating user role:', error);
+        Alert.alert('Error', 'No se pudo actualizar el rol. Intenta nuevamente.');
+      } finally {
+        setRoleUpdating((prev) => {
+          const updated = { ...prev };
+          delete updated[userId];
+          return updated;
+        });
+      }
+    },
+    [currentUser?.email, currentUser?.id, fetchActivity, getRoleConfig, isSuperAdmin, users]
+  );
+
+  const renderActivityLog = useCallback(() => {
+    if (!isSuperAdmin) return null;
+
+    const renderEntry = (entry: ActivityLogEntry) => {
+      const actorEmail = entry.user_email || 'Sistema';
+      const timestamp = new Date(entry.created_at || '').toLocaleString('es-PE');
+      let description = entry.description;
+      let iconName: keyof typeof Ionicons.glyphMap = 'time-outline';
+      let iconColor = Colors.dark.primary;
+
+      // Personalizar icono y color según el tipo de acción
+      if (entry.action === 'role_change') {
+        iconName = 'shield-outline';
+        iconColor = '#EA580C';
+      } else if (entry.action === 'payment_completed') {
+        iconName = 'checkmark-circle-outline';
+        iconColor = '#10B981';
+      } else if (entry.action === 'payment_failed') {
+        iconName = 'close-circle-outline';
+        iconColor = '#EF4444';
+      } else if (entry.action === 'payment_mock') {
+        iconName = 'flask-outline';
+        iconColor = '#8B5CF6';
+      } else if (entry.action === 'payment_manual') {
+        iconName = 'document-text-outline';
+        iconColor = '#F59E0B';
+      } else if (entry.action === 'ticket_validated') {
+        iconName = 'qr-code-outline';
+        iconColor = '#7C3AED';
+      }
+
+      return (
+        <View key={entry.id} style={styles.activityItem}>
+          <View style={[styles.activityIcon, { backgroundColor: `${iconColor}20` }]}>
+            <Ionicons name={iconName} size={16} color={iconColor} />
+          </View>
+          <View style={styles.activityContent}>
+            <Text style={styles.activityDescription}>{description}</Text>
+            <Text style={styles.activityMeta}>
+              {actorEmail} · {timestamp}
+            </Text>
+          </View>
+        </View>
+      );
+    };
+
+    return (
+      <View style={styles.sectionCard}>
+        <View style={styles.sectionCardHeader}>
+          <Text style={styles.sectionTitle}>Actividad reciente</Text>
+          <Text style={styles.sectionSubtitle}>Últimas acciones registradas</Text>
+        </View>
+        {activityLoading ? (
+          <ActivityIndicator size="small" color={Colors.dark.primary} />
+        ) : recentActivity.length === 0 ? (
+          <Text style={styles.activityEmpty}>Aún no hay acciones registradas</Text>
+        ) : (
+          <View style={styles.activityList}>{recentActivity.map(renderEntry)}</View>
+        )}
+      </View>
+    );
+  }, [activityLoading, isSuperAdmin, recentActivity]);
 
   const renderUserCard = useCallback(
     ({ item }: { item: User }) => {
       const roleConfig = getRoleConfig(item.role);
+      const showQuickActions = isSuperAdmin && item.role !== 'super_admin' && item.id !== currentUser?.id;
+      const updatingRole = roleUpdating[item.id];
 
       return (
-        <TouchableOpacity
-          style={styles.userCard}
-          onPress={() => router.push(`/admin/user-management/${item.id}`)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.userCardContent}>
-            {/* Avatar */}
+        <View style={styles.userCard}>
+          <TouchableOpacity
+            style={styles.userCardContent}
+            onPress={() => router.push(`/admin/user-management/${item.id}`)}
+            activeOpacity={0.7}
+          >
             <View style={[styles.avatar, { backgroundColor: roleConfig.bgColor }]}>
               <Ionicons name={roleConfig.icon} size={24} color={roleConfig.color} />
             </View>
 
-            {/* User Info */}
             <View style={styles.userInfo}>
               <Text style={styles.userName} numberOfLines={1}>
                 {item.email || 'Sin email'}
@@ -143,7 +265,6 @@ export default function UserManagementScreen() {
                 ID: {item.id.substring(0, 8)}...
               </Text>
 
-              {/* Role Badge */}
               <View style={styles.userMetaRow}>
                 <View style={[styles.roleBadge, { backgroundColor: roleConfig.bgColor }]}>
                   <Ionicons name={roleConfig.icon} size={12} color={roleConfig.color} />
@@ -151,17 +272,62 @@ export default function UserManagementScreen() {
                     {roleConfig.label}
                   </Text>
                 </View>
-                <Text style={styles.userMetaHint}>Toca para gestionar</Text>
+                <Text style={styles.userMetaHint}>
+                  {showQuickActions ? 'Gestión rápida disponible' : 'Toca para gestionar'}
+                </Text>
               </View>
             </View>
 
-            {/* Arrow Icon */}
             <Ionicons name="chevron-forward" size={20} color={Colors.dark.textSecondary} />
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
+
+          {showQuickActions && (
+            <View style={styles.userQuickActions}>
+              <TouchableOpacity
+                style={[
+                  styles.quickActionButton,
+                  styles.quickActionAdmin,
+                  (updatingRole || item.role === 'admin') && styles.quickActionButtonDisabled,
+                ]}
+                onPress={() => handleQuickRoleUpdate(item.id, 'admin')}
+                disabled={Boolean(updatingRole) || item.role === 'admin'}
+                activeOpacity={0.8}
+              >
+                {updatingRole === 'admin' ? (
+                  <ActivityIndicator size="small" color="#EA580C" />
+                ) : (
+                  <>
+                    <Ionicons name="shield" size={16} color="#EA580C" />
+                    <Text style={[styles.quickActionText, { color: '#EA580C' }]}>Hacer Admin</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.quickActionButton,
+                  styles.quickActionValidator,
+                  (updatingRole || item.role === 'qr_validator') && styles.quickActionButtonDisabled,
+                ]}
+                onPress={() => handleQuickRoleUpdate(item.id, 'qr_validator')}
+                disabled={Boolean(updatingRole) || item.role === 'qr_validator'}
+                activeOpacity={0.8}
+              >
+                {updatingRole === 'qr_validator' ? (
+                  <ActivityIndicator size="small" color="#7C3AED" />
+                ) : (
+                  <>
+                    <Ionicons name="qr-code" size={16} color="#7C3AED" />
+                    <Text style={[styles.quickActionText, { color: '#7C3AED' }]}>Hacer Validador</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       );
     },
-    [router]
+    [router, isSuperAdmin, currentUser?.id, roleUpdating, handleQuickRoleUpdate, getRoleConfig]
   );
 
   const renderListHeader = useCallback(() => (
@@ -239,12 +405,18 @@ export default function UserManagementScreen() {
         </View>
       </View>
 
+      {renderActivityLog()}
+
       <View style={styles.listHeaderRow}>
         <Text style={styles.listHeaderTitle}>Usuarios</Text>
-        <Text style={styles.listHeaderSubtitle}>Selecciona un usuario para gestionar su rol</Text>
+        <Text style={styles.listHeaderSubtitle}>
+          {isSuperAdmin
+            ? 'Selecciona un usuario o usa los accesos rápidos para asignar roles'
+            : 'Selecciona un usuario para gestionar su rol'}
+        </Text>
       </View>
     </View>
-  ), [activeFilter, filteredUsers.length, searchQuery, stats.admins, stats.clients, stats.total, stats.validators]);
+  ), [activeFilter, filteredUsers.length, isSuperAdmin, renderActivityLog, searchQuery, stats.admins, stats.clients, stats.total, stats.validators]);
 
   if (loading) {
     return (
@@ -530,5 +702,73 @@ const styles = StyleSheet.create({
   userMetaHint: {
     fontSize: FontSizes.xs,
     color: AdminColors.bodySecondary,
+  },
+  activityList: {
+    gap: Spacing.sm,
+  },
+  activityItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  activityIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  activityContent: {
+    flex: 1,
+  },
+  activityDescription: {
+    fontSize: FontSizes.sm,
+    color: AdminColors.headingPrimary,
+    fontWeight: '600',
+  },
+  activityMeta: {
+    fontSize: FontSizes.xs,
+    color: AdminColors.bodySecondary,
+  },
+  activityEmpty: {
+    fontSize: FontSizes.sm,
+    color: AdminColors.bodySecondary,
+    fontStyle: 'italic',
+  },
+  userQuickActions: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: AdminColors.borderSubtle,
+    backgroundColor: AdminColors.cardBackground,
+  },
+  quickActionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.xs,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+  },
+  quickActionAdmin: {
+    borderColor: 'rgba(234, 88, 12, 0.4)',
+    backgroundColor: 'rgba(234, 88, 12, 0.12)',
+  },
+  quickActionValidator: {
+    borderColor: 'rgba(124, 58, 237, 0.4)',
+    backgroundColor: 'rgba(124, 58, 237, 0.12)',
+  },
+  quickActionButtonDisabled: {
+    opacity: 0.5,
+  },
+  quickActionText: {
+    fontSize: FontSizes.sm,
+    fontWeight: '600',
   },
 });

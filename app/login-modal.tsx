@@ -60,6 +60,13 @@ export default function LoginModal() {
 
       if (!result.success) {
         Alert.alert('Error', result.error || 'No se pudo iniciar sesión');
+      } else {
+        // Login exitoso - cerrar modal
+        if (router.canDismiss()) {
+          router.dismiss();
+        } else {
+          router.replace('/(tabs)');
+        }
       }
     } finally {
       setIsLoading(false);

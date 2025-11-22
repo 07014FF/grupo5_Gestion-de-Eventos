@@ -34,6 +34,7 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const isValidator = user?.role === 'qr_validator';
   const insets = useSafeAreaInsets();
 
   return (
@@ -80,6 +81,7 @@ export default function TabLayout() {
           title: 'Home',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
           headerShown: false,
+          href: isValidator ? null : undefined,
         }}
       />
       <Tabs.Screen
@@ -87,6 +89,7 @@ export default function TabLayout() {
         options={{
           title: 'Mis Entradas',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="ticket" color={color} />,
+          href: isValidator ? null : undefined,
         }}
       />
       <Tabs.Screen

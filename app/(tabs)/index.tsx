@@ -82,6 +82,7 @@ export default function HomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState('Todos');
+  const [eventDateFilter, setEventDateFilter] = useState<'upcoming' | 'past' | 'all'>('upcoming');
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const { isDark } = useTheme();
   const palette = isDark ? Colors.dark : Colors.light;
@@ -164,9 +165,16 @@ export default function HomeScreen() {
       const matchesCategory =
         selectedCategory === 'Todos' || event.category === selectedCategory;
 
-      return matchesSearch && matchesCategory;
+      // Filtro por fecha
+      const eventStatus = getEventStatus(event.date).status;
+      const matchesDateFilter =
+        eventDateFilter === 'all' ||
+        (eventDateFilter === 'upcoming' && eventStatus !== 'past') ||
+        (eventDateFilter === 'past' && eventStatus === 'past');
+
+      return matchesSearch && matchesCategory && matchesDateFilter;
     });
-  }, [debouncedQuery, events, selectedCategory]);
+  }, [debouncedQuery, events, selectedCategory, eventDateFilter]);
 
   const featuredEvent = useMemo(
     () => (filteredEvents.length > 0 ? filteredEvents[0] : null),
@@ -203,6 +211,7 @@ export default function HomeScreen() {
   const handleClearFilters = useCallback(() => {
     setSearchQuery('');
     setSelectedCategory('Todos');
+    setEventDateFilter('upcoming');
   }, []);
 
   const handleCategorySelect = useCallback((category: string) => {
@@ -390,21 +399,79 @@ export default function HomeScreen() {
           </ScrollView>
         </View>
 
+        {/* Date Filter Tabs */}
+        <View style={styles.dateFilterContainer}>
+          <TouchableOpacity
+            style={[
+              styles.dateFilterTab,
+              eventDateFilter === 'upcoming' && styles.dateFilterTabActive,
+            ]}
+            onPress={() => setEventDateFilter('upcoming')}
+            accessibilityRole="button"
+            accessibilityLabel="Próximos eventos"
+          >
+            <Text
+              style={[
+                styles.dateFilterText,
+                eventDateFilter === 'upcoming' && styles.dateFilterTextActive,
+              ]}
+            >
+              Próximos
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.dateFilterTab,
+              eventDateFilter === 'past' && styles.dateFilterTabActive,
+            ]}
+            onPress={() => setEventDateFilter('past')}
+            accessibilityRole="button"
+            accessibilityLabel="Eventos finalizados"
+          >
+            <Text
+              style={[
+                styles.dateFilterText,
+                eventDateFilter === 'past' && styles.dateFilterTextActive,
+              ]}
+            >
+              Finalizados
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.dateFilterTab,
+              eventDateFilter === 'all' && styles.dateFilterTabActive,
+            ]}
+            onPress={() => setEventDateFilter('all')}
+            accessibilityRole="button"
+            accessibilityLabel="Todos los eventos"
+          >
+            <Text
+              style={[
+                styles.dateFilterText,
+                eventDateFilter === 'all' && styles.dateFilterTextActive,
+              ]}
+            >
+              Todos
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Results Counter */}
-        {!loading && (searchQuery || selectedCategory !== 'Todos') && (
+        {!loading && (searchQuery || selectedCategory !== 'Todos' || eventDateFilter !== 'upcoming') && (
           <View style={styles.resultsContainer}>
             <Text style={styles.resultsText}>
               {filteredEvents.length === 0
                 ? 'No se encontraron resultados'
                 : `${filteredEvents.length} evento${filteredEvents.length !== 1 ? 's' : ''} encontrado${filteredEvents.length !== 1 ? 's' : ''}`}
             </Text>
-            {(searchQuery || selectedCategory !== 'Todos') && (
+            {(searchQuery || selectedCategory !== 'Todos' || eventDateFilter !== 'upcoming') && (
               <TouchableOpacity
                 onPress={handleClearFilters}
                 style={styles.clearFiltersButton}
                 accessibilityRole="button"
                 accessibilityLabel="Limpiar filtros"
-                accessibilityHint="Restablece la búsqueda y la categoría seleccionada"
+                accessibilityHint="Restablece todos los filtros a los valores por defecto"
               >
                 <Text style={styles.clearFiltersText}>Limpiar filtros</Text>
               </TouchableOpacity>
@@ -1054,6 +1121,34 @@ const createStyles = (palette: ThemePalette, isDark: boolean) =>
     categoryChipActive: {
       backgroundColor: palette.primary,
       borderColor: palette.primary,
+    },
+    dateFilterContainer: {
+      flexDirection: 'row',
+      paddingHorizontal: Spacing.lg,
+      paddingVertical: Spacing.sm,
+      gap: Spacing.sm,
+      marginBottom: Spacing.md,
+    },
+    dateFilterTab: {
+      flex: 1,
+      paddingVertical: Spacing.sm,
+      alignItems: 'center',
+      borderRadius: BorderRadius.md,
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(15, 23, 42, 0.03)',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(15, 23, 42, 0.08)',
+    },
+    dateFilterTabActive: {
+      backgroundColor: palette.primary,
+      borderColor: palette.primary,
+    },
+    dateFilterText: {
+      fontSize: FontSizes.sm,
+      fontWeight: '600',
+      color: palette.textSecondary,
+    },
+    dateFilterTextActive: {
+      color: '#FFFFFF',
     },
     categoryChipText: {
       fontSize: FontSizes.sm,

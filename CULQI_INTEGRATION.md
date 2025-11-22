@@ -19,6 +19,21 @@ Culqi es la pasarela de pagos líder en Perú que permite procesar:
 ✅ **UI profesional** - Formulario de tarjeta con mejores prácticas
 ✅ **Manejo de errores** - Mensajes claros en español
 
+## 📴 Modo Offline (sin internet)
+
+Cuando estés en clase o no tengas acceso a internet, puedes activar el modo sandbox offline agregando en tu `.env`:
+
+```bash
+EXPO_PUBLIC_CULQI_OFFLINE_MODE=true
+```
+
+En este modo:
+- Los tokens y cargos se generan localmente con IDs mock (no se hace ninguna petición HTTP).
+- Las órdenes Yape/Plin muestran un QR generado en memoria para que puedas simular el flujo completo.
+- `PaymentService` recibe respuestas iguales a las del sandbox real, así que no necesitas tocar el resto del código.
+
+Para volver al sandbox real, simplemente pon `false` y reinicia la app.
+
 ## 🚀 Inicio Rápido
 
 ### 1. Configuración (Ya está hecha)

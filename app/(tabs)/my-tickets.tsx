@@ -141,15 +141,13 @@ export default function MyTicketsScreen() {
           <Text style={styles.detailLabel}>Tipo:</Text>
           <Text style={styles.detailValue}>{item.ticketType}</Text>
         </View>
-        {item.seatNumber && (
-          <View style={styles.ticketDetailItem}>
-            <Text style={styles.detailLabel}>Asiento:</Text>
-            <Text style={styles.detailValue}>{item.seatNumber}</Text>
-          </View>
-        )}
         <View style={styles.ticketDetailItem}>
-          <Text style={styles.detailLabel}>Precio:</Text>
-          <Text style={styles.detailValue}>S/ {item.price.toFixed(2)}</Text>
+          <Text style={styles.detailLabel}>Cantidad:</Text>
+          <Text style={styles.detailValue}>x{item.quantity}</Text>
+        </View>
+        <View style={styles.ticketDetailItem}>
+          <Text style={styles.detailLabel}>Total:</Text>
+          <Text style={styles.detailValue}>S/ {item.totalAmount.toFixed(2)}</Text>
         </View>
       </View>
 

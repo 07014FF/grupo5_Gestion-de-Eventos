@@ -51,11 +51,22 @@ export default function ProfileScreen() {
     console.log('✅ Sesión cerrada');
   };
 
+  const isValidator = user?.role === 'qr_validator';
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
   const profileOptions = [
+    ...(isValidator || isAdmin ? [{
+      id: 'validator',
+      title: 'Panel de Validación',
+      icon: 'qr-code-outline' as const,
+      onPress: () => router.push('/validator'),
+      isToggle: false,
+      badge: 'Validador',
+    }] : []),
     {
       id: 'edit-profile',
       title: 'Editar Perfil',
-      icon: 'create-outline',
+      icon: 'create-outline' as const,
       onPress: handleEditProfile,
       isToggle: false,
     },
@@ -70,24 +81,24 @@ export default function ProfileScreen() {
     {
       id: 'notifications',
       title: 'Notificaciones',
-      icon: 'notifications-outline',
+      icon: 'notifications-outline' as const,
       onPress: () => console.log('Notifications'),
       isToggle: false,
     },
-    {
+    ...(!isValidator ? [{
       id: 'payment',
       title: 'Métodos de Pago',
-      icon: 'card-outline',
+      icon: 'card-outline' as const,
       onPress: () => console.log('Payment'),
       isToggle: false,
     },
     {
       id: 'help',
       title: 'Ayuda y Soporte',
-      icon: 'help-circle-outline',
+      icon: 'help-circle-outline' as const,
       onPress: () => console.log('Help'),
       isToggle: false,
-    },
+    }] : []),
   ];
 
   return (

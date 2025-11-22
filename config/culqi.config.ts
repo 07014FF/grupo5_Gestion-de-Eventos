@@ -10,6 +10,7 @@ export const CULQI_CONFIG = {
   secretKey: process.env.EXPO_PUBLIC_CULQI_SECRET_KEY || 'sk_test_1573b0e8079863ca',
   apiUrl: process.env.EXPO_PUBLIC_CULQI_API_URL || 'https://api.culqi.com/v2',
   secureUrl: process.env.EXPO_PUBLIC_CULQI_SECURE_URL || 'https://secure.culqi.com',
+  offlineMode: process.env.EXPO_PUBLIC_CULQI_OFFLINE_MODE === 'true',
 };
 
 export const isCulqiConfigured = (): boolean => {
@@ -17,5 +18,7 @@ export const isCulqiConfigured = (): boolean => {
     CULQI_CONFIG.publicKey &&
     CULQI_CONFIG.secretKey &&
     !CULQI_CONFIG.publicKey.includes('PLACEHOLDER')
-  );
+  ) || CULQI_CONFIG.offlineMode;
 };
+
+export const isCulqiOfflineMode = (): boolean => CULQI_CONFIG.offlineMode === true;

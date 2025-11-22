@@ -1,5 +1,5 @@
 import React, { createContext, useState, useContext, PropsWithChildren, useEffect, useCallback, useMemo } from 'react';
-import { router } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Session } from '@supabase/supabase-js';
 
@@ -10,7 +10,7 @@ export interface User {
   email: string;
   phone?: string;
   document?: string;
-  role?: 'client' | 'admin' | 'super_admin';
+  role?: 'client' | 'admin' | 'super_admin' | 'qr_validator';
   avatar_url?: string;
 }
 
@@ -29,6 +29,7 @@ const AuthContext = createContext<AuthContextType | null>(null);
 
 // Creamos un proveedor de autenticación
 export function AuthProvider({ children }: PropsWithChildren) {
+  const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -57,6 +58,21 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     return () => subscription.unsubscribe();
   }, []);
+
+  useEffect(() => {
+    // Redirección basada en rol
+    if (loading || !user) {
+      return; // Esperar a que la carga inicial termine y el usuario esté cargado
+    }
+
+    if (user.role === 'qr_validator') {
+      // Si el usuario es un validador, redirigirlo a su pantalla dedicada.
+      console.log('🔄 Redirigiendo validador a /validator');
+      setTimeout(() => {
+        router.replace('/validator');
+      }, 100); // Pequeño delay para evitar conflictos de navegación
+    }
+  }, [user, loading]);
 
   // Cargar perfil de usuario desde la tabla public.users
   const loadUserProfile = async (userId: string) => {
@@ -87,7 +103,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
           email: data.email,
           phone: data.phone || undefined,
           document: data.document || undefined,
-          role: data.role as 'client' | 'admin' | 'super_admin',
+          role: data.role as 'client' | 'admin' | 'super_admin' | 'qr_validator',
           avatar_url: data.avatar_url || undefined,
         });
       } else {
@@ -113,29 +129,27 @@ export function AuthProvider({ children }: PropsWithChildren) {
       });
 
       if (error) {
-        console.error('❌ Login error:', error);
-        console.error('Error code:', error.status);
-        console.error('Error message:', error.message);
-        console.error('Error details:', JSON.stringify(error, null, 2));
+        console.error('❌ Login error:', error.message);
 
-        // Mensajes de error más específicos
+        // Mensajes de error más específicos y amigables
         if (error.message.includes('Invalid login credentials')) {
           return { success: false, error: 'Email o contraseña incorrectos' };
         }
         if (error.message.includes('Email not confirmed')) {
           return { success: false, error: 'Debes confirmar tu email antes de iniciar sesión' };
         }
+        if (error.message.includes('Invalid email')) {
+          return { success: false, error: 'El formato del email no es válido' };
+        }
 
-        return { success: false, error: error.message || 'Error al iniciar sesión' };
+        // Mensaje genérico para otros errores
+        return { success: false, error: 'Error al iniciar sesión. Verifica tus credenciales.' };
       }
 
       if (data.session) {
         console.log('✅ Login successful! User ID:', data.user.id);
         // El perfil se cargará automáticamente por el listener onAuthStateChange
-        // Cierra el modal de login si está abierto
-        if (router.canGoBack()) {
-          router.back();
-        }
+        // La redirección según el rol se maneja en el useEffect
         return { success: true };
       }
 
@@ -145,9 +159,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
       console.error('💥 Login exception:', error);
       console.error('Exception message:', error?.message);
       console.error('Exception stack:', error?.stack);
-      return { success: false, error: error?.message || 'Error al iniciar sesión. Intenta nuevamente.' };
+      return { success: false, error: 'Error inesperado al iniciar sesión' };
     }
-  }, []);
+  }, [router]);
 
   // Registro de nuevo usuario
   const signup = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {
@@ -167,20 +181,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
       });
 
       if (authError) {
-        console.error('❌ Signup auth error:', authError);
-        console.error('Error code:', authError.status);
-        console.error('Error message:', authError.message);
-        console.error('Error details:', JSON.stringify(authError, null, 2));
+        console.error('❌ Signup auth error:', authError.message);
 
-        // Mensajes de error más específicos
+        // Mensajes de error más específicos y amigables
         if (authError.message.includes('already registered')) {
           return { success: false, error: 'Este email ya está registrado' };
         }
         if (authError.message.includes('Password should be')) {
           return { success: false, error: 'La contraseña debe tener al menos 6 caracteres' };
         }
+        if (authError.message.includes('Invalid email')) {
+          return { success: false, error: 'El formato del email no es válido' };
+        }
 
-        return { success: false, error: authError.message };
+        return { success: false, error: 'Error al crear la cuenta. Intenta nuevamente.' };
       }
 
       if (!authData.user) {

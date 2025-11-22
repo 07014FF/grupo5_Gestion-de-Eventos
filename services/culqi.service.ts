@@ -10,7 +10,17 @@
 
 import axios from 'axios';
 import { ErrorHandler, AppError, ErrorCode, Ok, Err, Result } from '@/utils/errors';
-import { CULQI_CONFIG, isCulqiConfigured } from '@/config/culqi.config';
+import { CULQI_CONFIG, isCulqiConfigured, isCulqiOfflineMode } from '@/config/culqi.config';
+
+const OFFLINE_QR_PLACEHOLDER =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300">
+      <rect width="300" height="300" fill="#0f172a"/>
+      <text x="50%" y="50%" fill="#00d084" font-family="monospace" font-size="32" text-anchor="middle">QR OFFLINE</text>
+      <text x="50%" y="65%" fill="#94a3b8" font-family="monospace" font-size="18" text-anchor="middle">Modo Sandbox</text>
+    </svg>`
+  );
 
 // ============================================================================
 // TYPES
@@ -121,6 +131,145 @@ export interface CulqiOrder {
 // ============================================================================
 
 export class CulqiService {
+  private static offlineOrders = new Map<string, CulqiOrder>();
+
+  static isOfflineMode(): boolean {
+    return isCulqiOfflineMode();
+  }
+
+  private static async simulateOfflineLatency(min = 250, max = 900): Promise<void> {
+    const duration = Math.floor(Math.random() * (max - min + 1)) + min;
+    return new Promise(resolve => setTimeout(resolve, duration));
+  }
+
+  private static generateMockId(prefix: string): string {
+    const random = Math.random().toString(36).slice(2, 8);
+    return `${prefix}_${random}_${Date.now().toString(36)}`;
+  }
+
+  private static createMockToken(cardData: CulqiCardData): CulqiToken {
+    const digits = cardData.cardNumber.replace(/\s/g, '') || '4242424242424242';
+    const brand = this.detectCardBrand(cardData.cardNumber);
+    const lastFour = digits.slice(-4) || '4242';
+
+    return {
+      id: this.generateMockId('tok_mock'),
+      type: 'card',
+      email: cardData.email,
+      card_number: digits,
+      last_four: lastFour,
+      active: true,
+      iin: {
+        bin: digits.slice(0, 6) || '424242',
+        card_brand: brand,
+        card_type: 'credito',
+        card_category: 'classic',
+        issuer: {
+          name: 'Sandbox Bank',
+          country: 'Perú',
+          country_code: 'PE',
+        },
+      },
+      client: {
+        ip: '127.0.0.1',
+        ip_country: 'Perú',
+        ip_country_code: 'PE',
+        browser: 'Sandbox',
+        device_type: 'mobile',
+      },
+      metadata: {
+        offlineMode: true,
+        generated_at: new Date().toISOString(),
+      },
+    };
+  }
+
+  private static createMockCharge(
+    tokenId: string,
+    amount: number,
+    currency: string,
+    email: string,
+    description: string,
+    metadata?: Record<string, any>
+  ): CulqiCharge {
+    const now = Math.floor(Date.now() / 1000);
+    const reference = `MOCK-${now}`;
+
+    return {
+      id: this.generateMockId('chr_mock'),
+      amount,
+      amount_refunded: 0,
+      current_amount: amount,
+      installments: 0,
+      currency_code: currency,
+      email,
+      description,
+      source: {
+        id: tokenId,
+        type: 'token',
+        card_brand: metadata?.cardBrand || 'Visa',
+        card_type: metadata?.cardType || 'credito',
+        last_four: metadata?.lastFour || '4242',
+      },
+      outcome: {
+        type: 'venta_exitosa',
+        code: 'mock_success',
+        merchant_message: 'Pago simulado correctamente (modo offline).',
+        user_message: 'Pago aprobado (modo demostración).',
+      },
+      reference_code: reference,
+      authorization_code: `AUTH${now}`,
+      metadata: {
+        ...metadata,
+        offlineMode: true,
+      },
+      total_fee: 0,
+      fee_details: {
+        fixed_fee: {
+          total: 0,
+          currency_code: currency,
+        },
+        variable_fee: {
+          currency_code: currency,
+          commision: 0,
+          total: 0,
+        },
+      },
+      net_amount: amount,
+      duplicate: false,
+      tos_uri: 'https://culqi.com/terminos',
+      policy_uri: 'https://culqi.com/politicas',
+      creation_date: now,
+    };
+  }
+
+  private static createMockOrder(params: {
+    amount: number;
+    currency_code: string;
+    description: string;
+    order_number: string;
+    client_details: CulqiOrder['client_details'];
+    expiration_date: number;
+  }): CulqiOrder {
+    const order: CulqiOrder = {
+      id: this.generateMockId('ord_mock'),
+      amount: params.amount,
+      currency_code: params.currency_code,
+      description: params.description,
+      order_number: params.order_number,
+      state: 'pending',
+      client_details: params.client_details,
+      payment_code: `P-${Math.floor(Math.random() * 900000 + 100000)}`,
+      qr_image: OFFLINE_QR_PLACEHOLDER,
+      expiration_date: params.expiration_date,
+      metadata: {
+        offlineMode: true,
+      },
+    };
+
+    this.offlineOrders.set(order.id, order);
+    return order;
+  }
 
   /**
    * Verificar si Culqi está configurado
@@ -130,6 +279,7 @@ export class CulqiService {
     console.log('🔍 Culqi configured?', configured);
     console.log('🔑 Public Key:', CULQI_CONFIG.publicKey);
     console.log('🔐 Secret Key:', CULQI_CONFIG.secretKey?.substring(0, 10) + '...');
+    console.log('📴 Culqi offline mode?', this.isOfflineMode());
     return configured;
   }
 
@@ -146,6 +296,13 @@ export class CulqiService {
    */
   static async createToken(cardData: CulqiCardData): Promise<Result<CulqiToken>> {
     try {
+      if (this.isOfflineMode()) {
+        await this.simulateOfflineLatency();
+        const token = this.createMockToken(cardData);
+        console.log('🧪 Token mock (offline) generado:', token.id);
+        return Ok(token);
+      }
+
       if (!this.isConfigured()) {
         throw new AppError(
           ErrorCode.PAYMENT_FAILED,
@@ -154,7 +311,14 @@ export class CulqiService {
         );
       }
 
-      console.log('🔐 Tokenizando tarjeta con Culqi...');
+      const publicKey = CULQI_CONFIG.publicKey?.trim();
+      if (!publicKey || !publicKey.startsWith('pk_')) {
+        throw new AppError(
+          ErrorCode.PAYMENT_FAILED,
+          'Invalid Culqi public key',
+          'La configuración de Culqi es inválida. Verifica la clave pública en el archivo .env.'
+        );
+      }
 
       const tokenPayload = {
         card_number: cardData.cardNumber.replace(/\s/g, ''),
@@ -164,59 +328,36 @@ export class CulqiService {
         email: cardData.email,
       };
 
-      console.log('🔑 Using public key:', CULQI_CONFIG.publicKey);
-      console.log('🌐 API URL:', CULQI_CONFIG.apiUrl);
-      console.log('📦 Token payload:', tokenPayload);
+      const tokenUrl = `${CULQI_CONFIG.secureUrl}/v2/tokens`;
+      console.log('🔐 Tokenizando tarjeta con Culqi...', { tokenUrl });
 
-      // Crear el header de autorización explícitamente
-      const authHeader = `Bearer ${CULQI_CONFIG.publicKey}`;
-      console.log('🔐 Authorization Header:', authHeader);
+      const response = await axios.post<CulqiToken>(
+        tokenUrl,
+        tokenPayload,
+        {
+          headers: {
+            'Authorization': `Bearer ${publicKey}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+          },
+        }
+      );
 
-      const url = 'https://secure.culqi.com/v2/tokens';
-      console.log('🌍 Full URL:', url);
-
-      // Crear token usando Bearer con la clave pública según documentación de Culqi
-      // https://apidocs.culqi.com/#tag/Tokens/operation/crear-token
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': authHeader,
-        },
-        body: JSON.stringify(tokenPayload),
-      });
-
-      console.log('📡 Response status:', response.status);
-      console.log('📡 Response headers:', JSON.stringify(response.headers));
-
-      // Verificar si la respuesta fue exitosa
-      if (!response.ok) {
-        const errorData = await response.json();
-        const userMessage = errorData.user_message || errorData.merchant_message || 'Error al procesar la tarjeta.';
-
-        return Err(
-          new AppError(
-            ErrorCode.PAYMENT_FAILED,
-            'Token creation failed',
-            userMessage
-          )
-        );
-      }
-
-      const token: CulqiToken = await response.json();
+      const token = response.data;
       console.log('✅ Token creado:', token.id);
 
       return Ok(token);
     } catch (error: any) {
       ErrorHandler.log(error, 'CulqiService.createToken');
 
-      // Manejar errores de red u otros errores
-      if (error.message) {
+      if (axios.isAxiosError?.(error) && error.response?.data) {
+        const culqiError = error.response.data as { user_message?: string; merchant_message?: string };
+        const userMessage = culqiError.user_message || culqiError.merchant_message || 'No se pudo procesar la tarjeta.';
         return Err(
           new AppError(
             ErrorCode.PAYMENT_FAILED,
             'Token creation failed',
-            error.message
+            userMessage
           )
         );
       }
@@ -254,6 +395,13 @@ export class CulqiService {
     metadata?: Record<string, any>
   ): Promise<Result<CulqiCharge>> {
     try {
+      if (this.isOfflineMode()) {
+        await this.simulateOfflineLatency();
+        const charge = this.createMockCharge(tokenId, amount, currency, email, description, metadata);
+        console.log('🧪 Cargo mock (offline) creado:', charge.id);
+        return Ok(charge);
+      }
+
       if (!this.isConfigured()) {
         throw new AppError(
           ErrorCode.PAYMENT_FAILED,
@@ -353,6 +501,26 @@ export class CulqiService {
     expirationMinutes: number = 60
   ): Promise<Result<CulqiOrder>> {
     try {
+      if (this.isOfflineMode()) {
+        await this.simulateOfflineLatency();
+        const expirationDate = Math.floor(Date.now() / 1000) + expirationMinutes * 60;
+        const order = this.createMockOrder({
+          amount,
+          currency_code: currency,
+          description,
+          order_number: orderNumber,
+          client_details: {
+            first_name: clientDetails.firstName,
+            last_name: clientDetails.lastName,
+            email: clientDetails.email,
+            phone_number: clientDetails.phone,
+          },
+          expiration_date: expirationDate,
+        });
+        console.log('🧪 Orden mock (offline) creada:', order.id);
+        return Ok(order);
+      }
+
       if (!this.isConfigured()) {
         throw new AppError(
           ErrorCode.PAYMENT_FAILED,
@@ -429,6 +597,33 @@ export class CulqiService {
    */
   static async getOrder(orderId: string): Promise<Result<CulqiOrder>> {
     try {
+      if (this.isOfflineMode()) {
+        await this.simulateOfflineLatency(200, 600);
+        const existing = this.offlineOrders.get(orderId);
+        if (!existing) {
+          return Err(
+            new AppError(
+              ErrorCode.PAYMENT_FAILED,
+              'Offline order not found',
+              'No se encontró la orden en modo offline.'
+            )
+          );
+        }
+
+        if (existing.state !== 'paid') {
+          const updated: CulqiOrder = {
+            ...existing,
+            state: 'paid',
+            paid_at: Math.floor(Date.now() / 1000),
+          };
+          this.offlineOrders.set(orderId, updated);
+          console.log('🧪 Orden mock marcada como pagada:', orderId);
+          return Ok(updated);
+        }
+
+        return Ok(existing);
+      }
+
       if (!this.isConfigured()) {
         throw new AppError(
           ErrorCode.PAYMENT_FAILED,

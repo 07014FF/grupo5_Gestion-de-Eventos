@@ -39,13 +39,6 @@ const PAYMENT_METHODS_PERU: PaymentMethodOption[] = [
     description: 'Crédito o Débito',
     color: '#4F46E5',
   },
-  {
-    id: 'bank_transfer',
-    name: 'Transferencia',
-    icon: '🏦',
-    description: 'Bancaria',
-    color: '#059669',
-  },
 ];
 
 interface PaymentMethodSelectorProps {
@@ -119,13 +112,11 @@ export const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({
       {selectedMethod === 'yape' && (
         <View style={[styles.infoCard, { backgroundColor: colors.surfaceElevated }]}>
           <Text style={[styles.infoTitle, { color: colors.text }]}>
-            📱 Cómo pagar con Yape
+            💜 Pago con Yape
           </Text>
           <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-            1. Abre tu app de Yape{'\n'}
-            2. Escanea el código QR que aparecerá{'\n'}
-            3. Confirma el pago en Yape{'\n'}
-            4. Tu entrada se activará automáticamente
+            Al confirmar, tu pago se procesará instantáneamente (modo prueba).{'\n\n'}
+            Tus entradas estarán disponibles de inmediato en "Mis Entradas".
           </Text>
         </View>
       )}
@@ -133,13 +124,11 @@ export const PaymentMethodSelector: React.FC<PaymentMethodSelectorProps> = ({
       {selectedMethod === 'plin' && (
         <View style={[styles.infoCard, { backgroundColor: colors.surfaceElevated }]}>
           <Text style={[styles.infoTitle, { color: colors.text }]}>
-            📱 Cómo pagar con Plin
+            💙 Pago con Plin
           </Text>
           <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-            1. Abre tu app de Plin{'\n'}
-            2. Escanea el código QR que aparecerá{'\n'}
-            3. Confirma el pago en Plin{'\n'}
-            4. Tu entrada se activará automáticamente
+            Al confirmar, tu pago se procesará instantáneamente (modo prueba).{'\n\n'}
+            Tus entradas estarán disponibles de inmediato en "Mis Entradas".
           </Text>
         </View>
       )}

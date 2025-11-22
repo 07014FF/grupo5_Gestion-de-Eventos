@@ -1,7 +1,7 @@
+import FormContainer from '@/components/FormContainer';
 import { CulqiCardForm } from '@/components/payment/CulqiCardForm';
-import { ManualQRPayment } from '@/components/payment/ManualQRPayment';
 import { PaymentMethodSelector } from '@/components/payment/PaymentMethodSelector';
-import { Button, FormContainer, Input } from '@/components/ui';
+import { Button, Input } from '@/components/ui';
 import { BorderRadius, Colors, FontSizes, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { CulqiService, CulqiToken } from '@/services/culqi.service';
@@ -93,8 +93,8 @@ export default function PurchaseScreen() {
     clampQuantity(Number(parsedParams.quantity) || 1)
   );
   const [selectedPayment, setSelectedPayment] = useState<string>('');
-  const [showQRPayment, setShowQRPayment] = useState(false);
   const [showCardForm, setShowCardForm] = useState(false);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [ticketType, setTicketType] = useState<'student' | 'general'>(
     parsedParams.ticketType === 'student' ? 'student' : 'general'
@@ -130,122 +130,11 @@ export default function PurchaseScreen() {
   // Handler para cuando se crea el token de Culqi
   const handleCulqiTokenCreated = async (token: CulqiToken) => {
     console.log('✅ Token de Culqi recibido:', token.id);
-    setCulqiToken(token);
+
     setShowCardForm(false);
 
     // Procesar pago automáticamente con el token
     await processCulqiCardPayment(token);
-  };
-
-  const handleManualPaymentConfirmed = async (transactionRef: string) => {
-    setShowQRPayment(false);
-    setIsProcessing(true);
-
-    try {
-      if (!user?.id) {
-        Alert.alert('Error', 'Debes iniciar sesión para comprar entradas');
-        return;
-      }
-
-      // 1. Crear payment intent
-      const paymentIntentResult = await PaymentService.createPaymentIntent(
-        calculateTotal(),
-        selectedPayment as PaymentMethod,
-        {
-          eventId: eventData.id,
-          userId: user.id,
-          quantity,
-          name: userInfo.name,
-          email: userInfo.email,
-          phone: userInfo.phone,
-        }
-      );
-
-      if (!paymentIntentResult.success) {
-        Alert.alert('Error', paymentIntentResult.error.getUserMessage());
-        return;
-      }
-
-      // 2. Procesar pago manual (pendiente de verificación)
-      const paymentResult = await PaymentService.processManualPayment(
-        paymentIntentResult.data,
-        transactionRef
-      );
-
-      if (!paymentResult.success) {
-        Alert.alert('Error', paymentResult.error.getUserMessage());
-        return;
-      }
-
-      const payment = paymentResult.data;
-
-      // 3. Crear el objeto Event para el servicio
-      const event: Event = {
-        id: eventData.id,
-        title: eventData.title,
-        subtitle: eventData.subtitle,
-        date: eventData.date,
-        time: eventData.time,
-        location: eventData.location,
-        price: eventData.price,
-        availableTickets: eventData.availableTickets,
-      };
-
-      // 4. Crear el objeto UserInfo
-      const purchaseUserInfo: UserInfo = {
-        name: userInfo.name,
-        email: userInfo.email,
-        phone: userInfo.phone,
-        document: userInfo.document,
-      };
-
-      // 5. Crear la compra con estado pendiente
-      const ticketResult = await TicketServiceSupabase.createPurchase(
-        event,
-        quantity,
-        purchaseUserInfo,
-        selectedPayment as PaymentMethod,
-        user.id,
-        {
-          paymentId: payment.paymentId,
-          transactionId: transactionRef,
-          gateway: 'manual',
-          metadata: {
-            method: selectedPayment,
-            requiresVerification: true,
-          },
-        }
-      );
-
-      if (ticketResult.success) {
-        Alert.alert(
-          'Pago Registrado',
-          `Tu pago de S/ ${calculateTotal().toFixed(2)} ha sido registrado.\n\nReferencia: ${transactionRef}\n\nTus entradas estarán disponibles una vez que confirmemos tu pago. Esto puede tardar unos minutos.`,
-          [
-            {
-              text: 'Ver Mis Entradas',
-              onPress: () => {
-                router.replace('/(tabs)/my-tickets');
-              },
-            },
-            {
-              text: 'OK',
-              onPress: () => router.back(),
-            },
-          ]
-        );
-      } else {
-        Alert.alert(
-          'Error',
-          'Hubo un error al registrar tu compra. Por favor contacta a soporte con la referencia: ' + transactionRef
-        );
-      }
-    } catch (error) {
-      console.error('Error al procesar pago manual:', error);
-      Alert.alert('Error', 'No se pudo registrar el pago. Intenta nuevamente.');
-    } finally {
-      setIsProcessing(false);
-    }
   };
 
   // Procesar pago con tarjeta usando token de Culqi
@@ -305,6 +194,7 @@ export default function PurchaseScreen() {
       }
 
       // 3. Crear tickets en la base de datos
+      const actualPrice = ticketType === 'student' ? 0 : eventData.price;
       const event: Event = {
         id: eventData.id,
         title: eventData.title,
@@ -312,7 +202,7 @@ export default function PurchaseScreen() {
         date: eventData.date,
         time: eventData.time,
         location: eventData.location,
-        price: eventData.price,
+        price: actualPrice, // Usar precio real según tipo de entrada
         availableTickets: eventData.availableTickets,
       };
 
@@ -370,6 +260,124 @@ export default function PurchaseScreen() {
     }
   };
 
+  // Procesar pago con Yape/Plin (modo prueba - instantáneo)
+  const processYapePlinPayment = async (method: 'yape' | 'plin') => {
+    if (!user?.id) {
+      Alert.alert('Error', 'Debes iniciar sesión para comprar entradas');
+      return;
+    }
+
+    setIsProcessing(true);
+
+    try {
+      const totalInSoles = calculateTotal(); // Total en soles (ej: 50)
+      const totalInCents = PaymentService.toCents(totalInSoles); // Convertir a centavos (ej: 5000)
+
+      console.log(`💜 Procesando pago ${method.toUpperCase()} de S/ ${totalInSoles.toFixed(2)}...`);
+
+      // Simular delay de procesamiento
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // Configurar gateway
+      PaymentService.setGateway(PaymentGateway.MOCK);
+
+      // 1. Crear payment intent (espera centavos)
+      const paymentIntentResult = await PaymentService.createPaymentIntent(
+        totalInCents,
+        method as PaymentMethod,
+        {
+          eventId: eventData.id,
+          eventTitle: eventData.title,
+          userId: user.id,
+          quantity,
+          email: userInfo.email,
+          name: userInfo.name,
+          phone: userInfo.phone,
+        }
+      );
+
+      if (!paymentIntentResult.success) {
+        Alert.alert('Error', paymentIntentResult.error.getUserMessage());
+        return;
+      }
+
+      // 2. Procesar pago (simulado exitoso)
+      const paymentResult = await PaymentService.processPayment(paymentIntentResult.data);
+
+      if (!paymentResult.success) {
+        Alert.alert('Pago Rechazado', paymentResult.error.getUserMessage());
+        return;
+      }
+
+      const payment = paymentResult.data;
+
+      // 3. Crear tickets
+      const actualPrice = ticketType === 'student' ? 0 : eventData.price;
+      const event: Event = {
+        id: eventData.id,
+        title: eventData.title,
+        subtitle: eventData.subtitle,
+        date: eventData.date,
+        time: eventData.time,
+        location: eventData.location,
+        price: actualPrice,
+        availableTickets: eventData.availableTickets,
+      };
+
+      const purchaseUserInfo: UserInfo = {
+        name: userInfo.name,
+        email: userInfo.email,
+        phone: userInfo.phone,
+        document: userInfo.document,
+      };
+
+      const ticketResult = await TicketServiceSupabase.createPurchase(
+        event,
+        quantity,
+        purchaseUserInfo,
+        method as PaymentMethod,
+        user.id,
+        {
+          paymentId: payment.paymentId,
+          transactionId: payment.transactionId || `${method.toUpperCase()}-${Date.now()}`,
+          gateway: 'mock',
+          metadata: {
+            ...payment.metadata,
+            paymentMethod: method,
+            simulatedPayment: true,
+          },
+        }
+      );
+
+      if (ticketResult.success) {
+        Alert.alert(
+          '¡Pago Exitoso! 🎉',
+          `Tu pago de S/ ${totalInSoles.toFixed(2)} con ${method === 'yape' ? 'Yape' : 'Plin'} ha sido procesado.\n\nTus entradas ya están disponibles.`,
+          [
+            {
+              text: 'Ver Mis Entradas',
+              onPress: () => router.replace('/(tabs)/my-tickets'),
+            },
+            {
+              text: 'OK',
+              onPress: () => router.back(),
+            },
+          ]
+        );
+      } else {
+        Alert.alert(
+          'Error',
+          'El pago se procesó pero hubo un error generando tus entradas. Contacta a soporte.'
+        );
+      }
+    } catch (error) {
+      console.error(`Error al procesar pago ${method}:`, error);
+      Alert.alert('Error', 'No se pudo completar el pago. Intenta nuevamente.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handlePurchase = async () => {
     if (!userInfo.name || !userInfo.email) {
       Alert.alert('Error', 'Por favor completa la información requerida');
@@ -391,7 +399,7 @@ export default function PurchaseScreen() {
       try {
         console.log('🎓 Procesando tickets gratuitos para estudiantes...');
 
-        // Crear el objeto Event
+        // Crear el objeto Event con precio 0 para estudiantes
         const event: Event = {
           id: eventData.id,
           title: eventData.title,
@@ -399,7 +407,7 @@ export default function PurchaseScreen() {
           date: eventData.date,
           time: eventData.time,
           location: eventData.location,
-          price: eventData.price,
+          price: 0, // Precio 0 para estudiantes
           availableTickets: eventData.availableTickets,
         };
 
@@ -467,15 +475,25 @@ export default function PurchaseScreen() {
       return;
     }
 
-    // Si es Yape o Plin, mostrar modal de QR
-    if (selectedPayment === 'yape' || selectedPayment === 'plin') {
-      setShowQRPayment(true);
+    // Validar que si el monto es 0, no se permita seleccionar métodos de pago
+    if (totalAmount === 0) {
+      Alert.alert(
+        'Entradas gratuitas',
+        'Las entradas de estudiante son GRATIS. No necesitas usar un método de pago. Simplemente presiona "Confirmar Compra" sin seleccionar método de pago.',
+        [{ text: 'Entendido', onPress: () => setSelectedPayment('') }]
+      );
       return;
     }
 
     // Si es tarjeta, mostrar formulario de Culqi
     if (selectedPayment === 'card') {
       setShowCardForm(true);
+      return;
+    }
+
+    // Si es Yape o Plin, procesar como pago instantáneo (modo prueba)
+    if (selectedPayment === 'yape' || selectedPayment === 'plin') {
+      await processYapePlinPayment(selectedPayment as 'yape' | 'plin');
       return;
     }
 
@@ -593,21 +611,6 @@ export default function PurchaseScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={false} />
 
-      {/* Manual QR Payment Modal */}
-      <Modal
-        visible={showQRPayment}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setShowQRPayment(false)}
-      >
-        <ManualQRPayment
-          method={selectedPayment as 'yape' | 'plin'}
-          amount={calculateTotal()}
-          onPaymentConfirmed={handleManualPaymentConfirmed}
-          onCancel={() => setShowQRPayment(false)}
-        />
-      </Modal>
-
       {/* Culqi Card Form Modal */}
       <Modal
         visible={showCardForm}
@@ -718,7 +721,7 @@ export default function PurchaseScreen() {
                 ]}>
                   Público General
                 </Text>
-                <Text style={styles.ticketTypePrice}>S/ 5.00</Text>
+                <Text style={styles.ticketTypePrice}>S/ {eventData.price.toFixed(2)}</Text>
               </View>
             </View>
             <View style={[
@@ -756,7 +759,7 @@ export default function PurchaseScreen() {
           </View>
 
           <Text style={styles.quantityNote}>
-            Precio por entrada: S/ {ticketType === 'student' ? '0.00' : '5.00'}
+            Precio por entrada: S/ {ticketType === 'student' ? '0.00' : eventData.price.toFixed(2)}
           </Text>
         </View>
 

@@ -62,27 +62,39 @@ export class TicketServiceSupabase {
         );
       }
 
-      // Check if event has enough tickets
-      const { data: eventData, error: eventError } = await supabase
+      // Optimistic check: verify event has enough tickets (soft check)
+      // The trigger will do the authoritative check during insertion
+      const { data: eventData, error: eventCheckError } = await supabase
         .from('events')
-        .select('available_tickets')
+        .select('available_tickets, total_tickets')
         .eq('id', event.id)
         .single();
 
-      if (eventError) {
-        throw new AppError(
-          ErrorCode.UNKNOWN_ERROR,
-          'Failed to fetch event',
-          'No se pudo verificar la disponibilidad del evento.',
-          eventError
-        );
+      if (eventCheckError) {
+        console.error('⚠️ No se pudo verificar disponibilidad:', eventCheckError);
       }
 
-      if (!eventData || eventData.available_tickets < quantity) {
+      // Si available_tickets es 0 o NULL, intentar actualizarlo primero usando la función
+      if (eventData && (eventData.available_tickets === null || eventData.available_tickets === 0)) {
+        console.log('⚠️ Evento sin tickets disponibles, intentando actualizar...');
+
+        // Intentar usar la función RPC si existe
+        const { error: fixError } = await supabase.rpc('fix_event_available_tickets', {
+          event_id_param: event.id
+        });
+
+        if (fixError) {
+          console.error('❌ No se pudo actualizar available_tickets con RPC:', fixError);
+          // Si falla, permitir que el trigger lo maneje (podría funcionar con SECURITY DEFINER)
+          console.log('ℹ️ Intentando continuar de todos modos...');
+        } else {
+          console.log(`✅ available_tickets actualizado para el evento ${event.id}`);
+        }
+      } else if (eventData && eventData.available_tickets < quantity) {
         throw new AppError(
           ErrorCode.VALIDATION_ERROR,
           'Not enough tickets available',
-          'No hay suficientes entradas disponibles.'
+          `Solo quedan ${eventData.available_tickets} entrada(s) disponible(s) para este evento.`
         );
       }
 
@@ -124,53 +136,84 @@ export class TicketServiceSupabase {
         );
       }
 
-      // 2. Create tickets
-      const ticketsToInsert = [];
-      for (let i = 0; i < quantity; i++) {
-        const ticketCode = QRService.generateTicketCode();
-        const ticketId = `${purchaseData.id}-${i + 1}`;
+      // 2. Create a SINGLE ticket representing all quantities
+      // Generate ticket code FIRST (this will be used in QR)
+      const ticketCode = QRService.generateTicketCode();
 
-        // Generate QR data
-        const qrResult = QRService.generateQRData(
-          ticketId,
-          event.id,
-          userId,
-          purchaseDate
-        );
+      console.log(`🎫 Generando ticket con código: ${ticketCode}`);
 
-        if (!qrResult.success) {
-          throw qrResult.error;
+      // Generate QR data using ticket_code (coherent lookup)
+      const qrResult = QRService.generateQRData(
+        ticketCode, // Use ticket_code instead of purchase ID
+        event.id,
+        userId,
+        purchaseDate,
+        { quantity } // Include quantity in metadata
+      );
+
+      if (!qrResult.success) {
+        throw qrResult.error;
+      }
+
+      // Manually decrement available_tickets by the quantity
+      // This bypasses the trigger since we're creating only ONE ticket record
+      const { error: decrementError } = await supabase.rpc('decrement_tickets_by_quantity', {
+        event_id_param: event.id,
+        decrement_by: quantity
+      });
+
+      if (decrementError) {
+        // If the function doesn't exist, try direct update (will be blocked by RLS but let's try)
+        console.warn('⚠️ RPC function not found, trying direct update');
+        const { error: updateError } = await supabase
+          .from('events')
+          .update({ available_tickets: supabase.raw(`available_tickets - ${quantity}`) })
+          .eq('id', event.id)
+          .gte('available_tickets', quantity);
+
+        if (updateError) {
+          console.error('❌ No se pudo decrementar tickets:', updateError);
+          await supabase.from('purchases').delete().eq('id', purchaseData.id);
+          throw new AppError(
+            ErrorCode.VALIDATION_ERROR,
+            'Not enough tickets available',
+            'No hay suficientes entradas disponibles para este evento.'
+          );
         }
+      }
 
-        ticketsToInsert.push({
+      // Create the single ticket with quantity
+      const { data: ticket, error: ticketError } = await supabase
+        .from('tickets')
+        .insert({
           ticket_code: ticketCode,
           purchase_id: purchaseData.id,
           event_id: event.id,
           user_id: userId,
           ticket_type: 'General',
           price: event.price,
+          quantity: quantity, // Store the actual quantity
           qr_code_data: qrResult.data,
           status: 'active' as TicketStatus,
-        });
-      }
+        })
+        .select()
+        .single();
 
-      // Insert all tickets
-      const { data: ticketsData, error: ticketsError } = await supabase
-        .from('tickets')
-        .insert(ticketsToInsert)
-        .select();
-
-      if (ticketsError || !ticketsData) {
-        // Rollback: delete purchase if ticket creation fails
+      if (ticketError || !ticket) {
+        console.error('❌ Error insertando ticket:', ticketError);
+        // Rollback purchase
         await supabase.from('purchases').delete().eq('id', purchaseData.id);
 
         throw new AppError(
           ErrorCode.UNKNOWN_ERROR,
-          'Failed to create tickets',
-          'No se pudieron crear las entradas. Intenta nuevamente.',
-          ticketsError
+          'Failed to create ticket',
+          'No se pudo crear el ticket. Intenta nuevamente.',
+          ticketError
         );
       }
+
+      console.log(`✅ Ticket único creado con cantidad: ${quantity}`);
+      const ticketsData = [ticket];
 
       // 3. Build tickets with event data for the Purchase object
       const tickets: Ticket[] = ticketsData.map((t) => ({
@@ -184,8 +227,8 @@ export class TicketServiceSupabase {
         ticketType: t.ticket_type,
         seatNumber: t.seat_number || undefined,
         price: t.price,
-        quantity: 1,
-        totalAmount: t.price,
+        quantity: t.quantity || 1,
+        totalAmount: t.price * (t.quantity || 1),
         qrCodeData: t.qr_code_data,
         usedAt: t.used_at || undefined,
         validatedBy: t.validated_by || undefined,
@@ -277,8 +320,8 @@ export class TicketServiceSupabase {
         ticketType: t.ticket_type,
         seatNumber: t.seat_number || undefined,
         price: t.price,
-        quantity: 1,
-        totalAmount: t.price,
+        quantity: t.quantity || 1,
+        totalAmount: t.price * (t.quantity || 1),
         qrCodeData: t.qr_code_data,
         usedAt: t.used_at || undefined,
         validatedBy: t.validated_by || undefined,
@@ -351,8 +394,8 @@ export class TicketServiceSupabase {
         ticketType: data.ticket_type,
         seatNumber: data.seat_number || undefined,
         price: data.price,
-        quantity: 1,
-        totalAmount: data.price,
+        quantity: data.quantity || 1,
+        totalAmount: data.price * (data.quantity || 1),
         qrCodeData: data.qr_code_data,
         usedAt: data.used_at || undefined,
         validatedBy: data.validated_by || undefined,
@@ -430,8 +473,8 @@ export class TicketServiceSupabase {
         ticketType: data.ticket_type,
         seatNumber: data.seat_number || undefined,
         price: data.price,
-        quantity: 1,
-        totalAmount: data.price,
+        quantity: data.quantity || 1,
+        totalAmount: data.price * (data.quantity || 1),
         qrCodeData: data.qr_code_data,
         usedAt: data.used_at || undefined,
         validatedBy: data.validated_by || undefined,
@@ -522,8 +565,8 @@ export class TicketServiceSupabase {
           ticketType: t.ticket_type,
           seatNumber: t.seat_number || undefined,
           price: t.price,
-          quantity: 1,
-          totalAmount: t.price,
+          quantity: t.quantity || 1,
+          totalAmount: t.price * (t.quantity || 1),
           qrCodeData: t.qr_code_data,
           usedAt: t.used_at || undefined,
           validatedBy: t.validated_by || undefined,

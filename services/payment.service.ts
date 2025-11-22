@@ -7,6 +7,7 @@
 import { ErrorHandler, AppError, ErrorCode, Ok, Err, Result } from '@/utils/errors';
 import { PaymentMethod } from '@/types/ticket.types';
 import { CulqiService, CulqiToken } from './culqi.service';
+import { ActivityLogService } from './activity-log.service';
 
 // ============================================================================
 // TYPES
@@ -66,6 +67,32 @@ export interface RefundRequest {
 
 export class PaymentService {
   private static currentGateway: PaymentGateway = PaymentGateway.CULQI; // Default: Culqi para Perú
+
+  private static async logPaymentAction(
+    userId: string | undefined,
+    userEmail: string | undefined,
+    action: 'payment_completed' | 'payment_failed' | 'payment_mock' | 'payment_manual',
+    paymentId: string,
+    metadata?: Record<string, any>
+  ): Promise<void> {
+    if (!userId) return;
+    try {
+      await ActivityLogService.log({
+        userId,
+        userEmail,
+        action,
+        entityType: 'payment',
+        // Don't pass entityId (it expects UUID), store paymentId in metadata instead
+        description: `${action === 'payment_completed' ? 'Pago completado' : action === 'payment_failed' ? 'Pago fallido' : action === 'payment_mock' ? 'Pago mock completado' : 'Pago manual enviado'}: ${metadata?.method || 'N/A'}`,
+        metadata: {
+          ...metadata,
+          paymentId, // Store payment ID here instead of entityId
+        },
+      });
+    } catch (error) {
+      console.error('⚠️ Failed to log payment action:', error);
+    }
+  }
 
   // -------------------------------------------------------------------------
   // Configuration
@@ -292,6 +319,27 @@ export class PaymentService {
 
         const isSuccess = status === PaymentStatus.COMPLETED;
 
+        // Log payment result
+        await this.logPaymentAction(
+          intent.metadata.userId,
+          intent.metadata.email,
+          isSuccess ? 'payment_completed' : 'payment_failed',
+          intent.id,
+          {
+            gateway: 'culqi',
+            method: 'card',
+            amount: intent.amount,
+            currency: 'PEN',
+            eventId: intent.metadata.eventId,
+            culqiChargeId: charge.id,
+            authorizationCode: charge.authorization_code,
+            cardBrand: charge.source.card_brand,
+            lastFour: charge.source.last_four,
+            outcome: charge.outcome.type,
+            errorMessage: !isSuccess ? charge.outcome.user_message : undefined,
+          }
+        );
+
         return Ok({
           success: isSuccess,
           paymentId: intent.id,
@@ -392,7 +440,7 @@ export class PaymentService {
       // Create pending payment record
       // This will be stored in the database and verified by admin
 
-      return Ok({
+      const result: PaymentResult = {
         success: false, // Not completed yet
         paymentId: intent.id,
         status: PaymentStatus.PENDING,
@@ -404,7 +452,23 @@ export class PaymentService {
           createdAt: new Date().toISOString(),
           instructions: 'Tu pago está siendo verificado. Recibirás una confirmación pronto.',
         },
-      });
+      };
+
+      await this.logPaymentAction(
+        intent.metadata.userId,
+        intent.metadata.email,
+        'payment_manual',
+        intent.id,
+        {
+          eventId: intent.metadata.eventId,
+          transactionRef,
+          amount: intent.amount,
+          method: intent.paymentMethod,
+          requiresVerification: true,
+        }
+      );
+
+      return Ok(result);
     } catch (error) {
       ErrorHandler.log(error, 'PaymentService.processManualPayment');
       return Err(
@@ -570,6 +634,7 @@ export class PaymentService {
       daviplata: 'BANCOLOMBIA_TRANSFER',
       cash: 'BANCOLOMBIA_COLLECT',
       bank_transfer: 'BANCOLOMBIA_TRANSFER',
+      free: 'FREE', // Tickets gratuitos
     };
     return mapping[method] || 'CARD';
   }
@@ -659,6 +724,18 @@ export class PaymentService {
       };
 
       console.log('✅ Mock payment successful:', result);
+      await this.logPaymentAction(
+        intent.metadata.userId,
+        intent.metadata.email,
+        'payment_mock',
+        intent.id,
+        {
+          eventId: intent.metadata.eventId,
+          amount: intent.amount,
+          method: intent.paymentMethod,
+          gateway: this.currentGateway,
+        }
+      );
       return Ok(result);
     } catch (error) {
       ErrorHandler.log(error, 'PaymentService.processMockPayment');
@@ -795,6 +872,7 @@ export class PaymentService {
       daviplata: 'Daviplata',
       cash: 'Efectivo',
       bank_transfer: 'Transferencia Bancaria',
+      free: 'Gratis',
     };
     return names[method] || method;
   }

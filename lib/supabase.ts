@@ -41,7 +41,7 @@ export type Database = {
           email: string;
           phone: string | null;
           document: string | null;
-          role: 'client' | 'admin' | 'super_admin';
+          role: 'client' | 'admin' | 'super_admin' | 'qr_validator';
           avatar_url: string | null;
           created_at: string;
           updated_at: string;
@@ -52,7 +52,7 @@ export type Database = {
           email: string;
           phone?: string | null;
           document?: string | null;
-          role?: 'client' | 'admin' | 'super_admin';
+          role?: 'client' | 'admin' | 'super_admin' | 'qr_validator';
           avatar_url?: string | null;
           created_at?: string;
           updated_at?: string;
@@ -63,7 +63,7 @@ export type Database = {
           email?: string;
           phone?: string | null;
           document?: string | null;
-          role?: 'client' | 'admin' | 'super_admin';
+          role?: 'client' | 'admin' | 'super_admin' | 'qr_validator';
           avatar_url?: string | null;
           created_at?: string;
           updated_at?: string;
