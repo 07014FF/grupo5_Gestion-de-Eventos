@@ -90,6 +90,7 @@ export class AppError extends Error {
       [ErrorCode.CAMERA_NOT_AVAILABLE]: 'La cámara no está disponible en este dispositivo.',
       [ErrorCode.UNKNOWN_ERROR]: 'Ocurrió un error inesperado. Intenta nuevamente.',
       [ErrorCode.SERVER_ERROR]: 'Error del servidor. Intenta nuevamente más tarde.',
+      [ErrorCode.DB_ERROR]: 'Error de base de datos. Por favor, intenta nuevamente.',
     };
 
     return messages[this.code] || messages[ErrorCode.UNKNOWN_ERROR];

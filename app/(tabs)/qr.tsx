@@ -2,7 +2,7 @@ import { Button } from '@/components/ui';
 import { BorderRadius, Colors, FontSizes, Shadows, Spacing } from '@/constants/theme';
 import { useAuth } from '@/context/AuthContext';
 import { QRService } from '@/services/qr.service';
-import { TicketServiceSupabase } from '@/services/ticket.service.supabase';
+import { ValidatorService } from '@/services/validator.service';
 import { Ionicons } from '@expo/vector-icons';
 import { Camera, CameraView } from 'expo-camera';
 import React, { useEffect, useState } from 'react';
@@ -57,30 +57,21 @@ export default function QRScreen() {
       const validationResult = await QRService.validateTicket(data);
 
       if (validationResult.isValid) {
-        // Get ticket details
+        // Parse QR data to get ticket info
         const parseResult = QRService.parseQRData(data);
 
         if (parseResult.success) {
           const payload = parseResult.data;
-          const ticketResult = await TicketServiceSupabase.getTicketById(payload.ticketId);
 
-          if (ticketResult.success) {
-            const ticket = ticketResult.data;
-
-            setValidationInfo({
-              isValid: true,
-              message: validationResult.message,
-              ticketCode: ticket.ticketCode,
-              eventTitle: ticket.event.title,
-              status: validationResult.status,
-            });
-          } else {
-            setValidationInfo({
-              isValid: true,
-              message: validationResult.message,
-              status: validationResult.status,
-            });
-          }
+          // El QR ya contiene toda la información necesaria
+          // No necesitamos hacer query adicional por ID
+          setValidationInfo({
+            isValid: true,
+            message: validationResult.message,
+            ticketCode: payload.ticketId, // ticketId en QR = ticket_code
+            eventTitle: 'Ver en validador',
+            status: validationResult.status,
+          });
         } else {
           setValidationInfo({
             isValid: true,
@@ -130,12 +121,18 @@ export default function QRScreen() {
             text: 'Permitir Ingreso',
             onPress: async () => {
               try {
-                // Mark ticket as used
+                // Parsear el QR data
                 const parseResult = QRService.parseQRData(scannedData);
                 if (parseResult.success) {
-                  const result = await TicketServiceSupabase.markTicketAsUsed(
-                    parseResult.data.ticketId,
-                    user.id
+                  const payload = parseResult.data;
+
+                  // Usar ValidatorService que maneja correctamente ticket_code
+                  // El servicio detecta el evento automáticamente del QR
+                  const result = await ValidatorService.validateTicket(
+                    scannedData, // Pasar el QR completo
+                    payload.eventId, // ID del evento
+                    user.id,
+                    user.email || 'Super Admin'
                   );
 
                   if (result.success) {

@@ -72,7 +72,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         router.replace('/validator');
       }, 100); // Pequeño delay para evitar conflictos de navegación
     }
-  }, [user, loading]);
+  }, [user, loading, router]);
 
   // Cargar perfil de usuario desde la tabla public.users
   const loadUserProfile = async (userId: string) => {
@@ -161,7 +161,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       console.error('Exception stack:', error?.stack);
       return { success: false, error: 'Error inesperado al iniciar sesión' };
     }
-  }, [router]);
+  }, []);
 
   // Registro de nuevo usuario
   const signup = useCallback(async (email: string, password: string, name: string): Promise<{ success: boolean; error?: string }> => {

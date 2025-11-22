@@ -182,13 +182,17 @@ export const ValidationResult: React.FC<ValidationResultProps> = ({
                     <View
                       style={[
                         styles.typeBadge,
-                        result.ticket.ticketType === 'student'
+                        result.ticket.ticketType?.toLowerCase().includes('student') ||
+                        result.ticket.ticketType?.toLowerCase().includes('estudiante')
                           ? styles.typeBadgeStudent
                           : styles.typeBadgeGeneral,
                       ]}
                     >
                       <Text style={styles.typeBadgeText}>
-                        {result.ticket.ticketType === 'student' ? 'Estudiante' : 'General'}
+                        {result.ticket.ticketType?.toLowerCase().includes('student') ||
+                        result.ticket.ticketType?.toLowerCase().includes('estudiante')
+                          ? 'Estudiante'
+                          : 'General'}
                       </Text>
                     </View>
                   </View>

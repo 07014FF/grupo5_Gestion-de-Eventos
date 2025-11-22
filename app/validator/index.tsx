@@ -1,6 +1,6 @@
 /**
  * Pantalla principal del Validador de Entradas
- * Incluye QR Scanner, validación manual, y estadísticas en tiempo real
+ * UI/UX mejorado con animaciones, gradientes y diseño moderno
  */
 
 import { ManualCodeInput } from '@/components/validator/ManualCodeInput';
@@ -23,6 +23,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Animated,
   FlatList,
   Modal,
   Platform,
@@ -31,6 +32,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 type ViewMode = 'scanner' | 'manual' | 'stats';
 
@@ -63,9 +65,46 @@ export default function ValidatorScreen() {
   // Estados de sincronización
   const [pendingValidations, setPendingValidations] = useState(0);
 
+  // Animaciones
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.95)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
   const isMounted = useRef(true);
   useEffect(() => {
     isMounted.current = true;
+
+    // Animación de entrada
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        tension: 50,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    // Animación de pulso para sync badge
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.2,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+
     return () => {
       isMounted.current = false;
     };
@@ -262,7 +301,7 @@ export default function ValidatorScreen() {
         onRequestClose={() => setShowEventSelector(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
+          <Animated.View style={[styles.modalContainer, { opacity: fadeAnim }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Seleccionar Evento</Text>
               <TouchableOpacity onPress={() => setShowEventSelector(false)}>
@@ -271,49 +310,77 @@ export default function ValidatorScreen() {
             </View>
 
             {isLoadingEvents ? (
-              <ActivityIndicator size="large" color={colors.primary} />
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color={colors.primary} />
+              </View>
             ) : (
               <FlatList
                 data={events}
                 keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[
-                      styles.eventItem,
-                      selectedEvent?.id === item.id && styles.eventItemSelected,
-                    ]}
-                    onPress={() => {
-                      setSelectedEvent(item);
-                      setShowEventSelector(false);
+                renderItem={({ item, index }) => (
+                  <Animated.View
+                    style={{
+                      opacity: fadeAnim,
+                      transform: [{
+                        translateY: fadeAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [50, 0],
+                        }),
+                      }],
                     }}
                   >
-                    <View style={styles.eventItemHeader}>
-                      <Text style={styles.eventItemTitle}>{item.title}</Text>
-                      {selectedEvent?.id === item.id && (
-                        <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
-                      )}
-                    </View>
-                    <View style={styles.eventItemMeta}>
-                      <Ionicons name="calendar" size={14} color={colors.textSecondary} />
-                      <Text style={styles.eventItemMetaText}>
-                        {new Date(item.date).toLocaleDateString('es-PE')}
-                      </Text>
-                    </View>
-                    <View style={styles.eventItemMeta}>
-                      <Ionicons name="location" size={14} color={colors.textSecondary} />
-                      <Text style={styles.eventItemMetaText}>{item.location}</Text>
-                    </View>
-                    <View style={styles.eventItemProgress}>
-                      <Text style={styles.eventItemProgressText}>
-                        {item.validatedCount} / {item.capacity} validados
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.eventItem,
+                        selectedEvent?.id === item.id && styles.eventItemSelected,
+                      ]}
+                      onPress={() => {
+                        setSelectedEvent(item);
+                        setShowEventSelector(false);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.eventItemHeader}>
+                        <View style={styles.eventIconContainer}>
+                          <Ionicons name="calendar" size={24} color={colors.primary} />
+                        </View>
+                        <View style={styles.eventItemContent}>
+                          <Text style={styles.eventItemTitle} numberOfLines={1}>
+                            {item.title}
+                          </Text>
+                          <View style={styles.eventItemMeta}>
+                            <Ionicons name="location" size={14} color={colors.textSecondary} />
+                            <Text style={styles.eventItemMetaText} numberOfLines={1}>
+                              {item.location}
+                            </Text>
+                          </View>
+                        </View>
+                        {selectedEvent?.id === item.id && (
+                          <Ionicons name="checkmark-circle" size={28} color={colors.success} />
+                        )}
+                      </View>
+                      <View style={styles.eventItemFooter}>
+                        <View style={styles.progressBarContainer}>
+                          <View
+                            style={[
+                              styles.progressBar,
+                              {
+                                width: `${(item.validatedCount / item.capacity) * 100}%`,
+                              },
+                            ]}
+                          />
+                        </View>
+                        <Text style={styles.eventItemProgressText}>
+                          {item.validatedCount} / {item.capacity} validados
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  </Animated.View>
                 )}
                 contentContainerStyle={styles.eventList}
               />
             )}
-          </View>
+          </Animated.View>
         </View>
       </Modal>
     ),
@@ -324,11 +391,11 @@ export default function ValidatorScreen() {
       selectedEvent,
       styles,
       colors,
+      fadeAnim,
     ]
   );
 
   if (!userRole || !ALLOWED_ROLES.includes(userRole)) {
-    // Muestra una pantalla vacía o un spinner mientras se redirige
     return (
       <View style={styles.container}>
         <ActivityIndicator style={{ marginTop: 100 }} size="large" color={colors.primary} />
@@ -338,8 +405,11 @@ export default function ValidatorScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
+      {/* Header con gradiente */}
+      <LinearGradient
+        colors={[colors.surface, colors.background]}
+        style={styles.header}
+      >
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </TouchableOpacity>
@@ -350,6 +420,7 @@ export default function ValidatorScreen() {
             <TouchableOpacity
               style={styles.eventSelector}
               onPress={() => setShowEventSelector(true)}
+              activeOpacity={0.7}
             >
               <Text style={styles.eventSelectorText} numberOfLines={1}>
                 {selectedEvent.title}
@@ -360,10 +431,12 @@ export default function ValidatorScreen() {
         </View>
 
         <View style={styles.headerActions}>
-          {/* Indicador de sincronización */}
+          {/* Indicador de sincronización con pulso */}
           {pendingValidations > 0 && (
             <TouchableOpacity style={styles.syncButton} onPress={handleSync}>
-              <Ionicons name="cloud-upload" size={20} color={colors.white} />
+              <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+                <Ionicons name="cloud-upload" size={20} color={colors.white} />
+              </Animated.View>
               <View style={styles.syncBadge}>
                 <Text style={styles.syncBadgeText}>{pendingValidations}</Text>
               </View>
@@ -372,63 +445,127 @@ export default function ValidatorScreen() {
 
           {/* Botón de cerrar sesión */}
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={24} color={colors.text} />
+            <Ionicons name="log-out-outline" size={24} color={colors.error} />
           </TouchableOpacity>
         </View>
-      </View>
+      </LinearGradient>
 
-      {/* Contenido */}
-      <View style={styles.content}>
+      {/* Contenido con animación */}
+      <Animated.View
+        style={[
+          styles.content,
+          {
+            opacity: fadeAnim,
+            transform: [{ scale: scaleAnim }],
+          },
+        ]}
+      >
         {!selectedEvent ? (
           <View style={styles.noEventContainer}>
-            <Ionicons name="calendar-outline" size={64} color={colors.textSecondary} />
-            <Text style={styles.noEventText}>Selecciona un evento para comenzar</Text>
+            <View style={styles.noEventIconContainer}>
+              <Ionicons name="calendar-outline" size={80} color={colors.primary} />
+            </View>
+            <Text style={styles.noEventTitle}>Sin Evento Seleccionado</Text>
+            <Text style={styles.noEventText}>
+              Selecciona un evento para comenzar a validar entradas
+            </Text>
             <TouchableOpacity
               style={styles.selectEventButton}
               onPress={() => setShowEventSelector(true)}
+              activeOpacity={0.8}
             >
-              <Text style={styles.selectEventButtonText}>Seleccionar Evento</Text>
+              <LinearGradient
+                colors={['#00D084', '#00B875']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.gradientButton}
+              >
+                <Ionicons name="add-circle-outline" size={24} color={colors.white} />
+                <Text style={styles.selectEventButtonText}>Seleccionar Evento</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
         ) : (
           <View style={styles.hubContainer}>
-            {/* Estadísticas */}
-            <ValidatorStats
-              stats={stats}
-              isLoading={isLoadingStats}
-              onRefresh={loadStats}
-            />
+            {/* Estadísticas con animación */}
+            <Animated.View style={{ opacity: fadeAnim }}>
+              <ValidatorStats
+                stats={stats}
+                isLoading={isLoadingStats}
+                onRefresh={loadStats}
+              />
+            </Animated.View>
 
-            {/* Acciones */}
+            {/* Acciones principales con efecto glassmorphism */}
             <View style={styles.actionsContainer}>
               <TouchableOpacity
                 style={styles.mainActionButton}
-                onPress={() => setViewMode('scanner')} // Esto abrirá el scanner
+                onPress={() => setViewMode('scanner')}
+                activeOpacity={0.8}
               >
-                <Ionicons name="qr-code" size={32} color={colors.white} />
-                <Text style={styles.mainActionButtonText}>Escanear QR</Text>
+                <LinearGradient
+                  colors={['#00D084', '#00B875']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.mainActionGradient}
+                >
+                  <View style={styles.scanIconContainer}>
+                    <Ionicons name="qr-code" size={40} color={colors.white} />
+                  </View>
+                  <Text style={styles.mainActionButtonText}>Escanear QR</Text>
+                  <Text style={styles.mainActionButtonSubtext}>
+                    Validación rápida y segura
+                  </Text>
+                </LinearGradient>
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={styles.secondaryActionButton}
-                onPress={() => setViewMode('manual')} // Esto abrirá el input manual
+                onPress={() => setViewMode('manual')}
+                activeOpacity={0.7}
               >
-                <Text style={styles.secondaryActionButtonText}>Ingresar código manualmente</Text>
+                <Ionicons name="keypad-outline" size={20} color={colors.primary} />
+                <Text style={styles.secondaryActionButtonText}>
+                  Ingresar código manualmente
+                </Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.primary} />
               </TouchableOpacity>
             </View>
-            
-            {/* Actividad Reciente */}
+
+            {/* Actividad Reciente con mejor diseño */}
             <View style={styles.recentActivityContainer}>
-              <Text style={styles.recentActivityTitle}>Actividad Reciente</Text>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="time-outline" size={24} color={colors.primary} />
+                <Text style={styles.recentActivityTitle}>Actividad Reciente</Text>
+              </View>
+
               {recentValidations.length === 0 ? (
                 <View style={styles.emptyStateContainer}>
-                  <Ionicons name="list-outline" size={48} color={colors.textSecondary} />
-                  <Text style={styles.emptyStateText}>Las validaciones aparecerán aquí.</Text>
+                  <Ionicons name="list-outline" size={56} color={colors.textSecondary} />
+                  <Text style={styles.emptyStateTitle}>Sin validaciones aún</Text>
+                  <Text style={styles.emptyStateText}>
+                    Las validaciones aparecerán aquí en tiempo real
+                  </Text>
                 </View>
               ) : (
                 <FlatList
                   data={recentValidations}
                   keyExtractor={(item, index) => `${item.validatedAt}-${index}`}
-                  renderItem={({ item }) => <RecentValidationItem item={item} colors={colors} />}
+                  renderItem={({ item, index }) => (
+                    <Animated.View
+                      style={{
+                        opacity: fadeAnim,
+                        transform: [{
+                          translateX: fadeAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [-50, 0],
+                          }),
+                        }],
+                      }}
+                    >
+                      <RecentValidationItem item={item} colors={colors} />
+                    </Animated.View>
+                  )}
                   contentContainerStyle={{ paddingBottom: 20 }}
                   showsVerticalScrollIndicator={false}
                 />
@@ -436,7 +573,7 @@ export default function ValidatorScreen() {
             </View>
           </View>
         )}
-      </View>
+      </Animated.View>
 
       {/* Modal para el Scanner */}
       <Modal
@@ -444,7 +581,11 @@ export default function ValidatorScreen() {
         animationType="slide"
         onRequestClose={() => setViewMode('stats')}
       >
-        <QRScanner onScan={handleValidateTicket} isProcessing={isProcessing} onCancel={() => setViewMode('stats')} />
+        <QRScanner
+          onScan={handleValidateTicket}
+          isProcessing={isProcessing}
+          onCancel={() => setViewMode('stats')}
+        />
       </Modal>
 
       {/* Modal para Entrada Manual */}
@@ -455,11 +596,11 @@ export default function ValidatorScreen() {
         onRequestClose={() => setViewMode('stats')}
       >
         <View style={styles.manualInputOverlay}>
-            <ManualCodeInput
-                onSubmit={handleValidateTicket}
-                isProcessing={isProcessing}
-                onCancel={() => setViewMode('stats')}
-            />
+          <ManualCodeInput
+            onSubmit={handleValidateTicket}
+            isProcessing={isProcessing}
+            onCancel={() => setViewMode('stats')}
+          />
         </View>
       </Modal>
 
@@ -476,60 +617,124 @@ export default function ValidatorScreen() {
   );
 }
 
-// Componente para item de la lista de actividad reciente
-const RecentValidationItem = ({ item, colors }: { item: TicketValidation, colors: any }) => {
-  // Como el servicio por ahora solo devuelve validos, lo forzamos.
-  // En una futura iteración, esto sería dinámico.
+// Componente para item de la lista de actividad reciente - MEJORADO
+const RecentValidationItem = ({ item, colors }: { item: TicketValidation; colors: any }) => {
   const icon = item.status === 'valid' ? 'checkmark-circle' : 'close-circle';
   const iconColor = item.status === 'valid' ? colors.success : colors.error;
-  const time = new Date(item.validatedAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' });
+  const time = new Date(item.validatedAt).toLocaleTimeString('es-PE', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.98,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      friction: 3,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  };
 
   return (
-    <View style={itemStyles(colors).container}>
-      <Ionicons name={icon} size={24} color={iconColor} />
-      <View style={itemStyles(colors).info}>
-        <Text style={itemStyles(colors).userName} numberOfLines={1}>
-          {item.userName}
-        </Text>
-        <Text style={itemStyles(colors).ticketType}>
-          Entrada {item.ticketType}
-        </Text>
-      </View>
-      <Text style={itemStyles(colors).time}>{time}</Text>
-    </View>
+    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+      <TouchableOpacity
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        activeOpacity={1}
+        style={itemStyles(colors).container}
+      >
+        <View style={itemStyles(colors).iconContainer}>
+          <Ionicons name={icon} size={28} color={iconColor} />
+        </View>
+        <View style={itemStyles(colors).info}>
+          <Text style={itemStyles(colors).userName} numberOfLines={1}>
+            {item.userName}
+          </Text>
+          <View style={itemStyles(colors).ticketTypeContainer}>
+            <Ionicons name="ticket-outline" size={14} color={colors.textSecondary} />
+            <Text style={itemStyles(colors).ticketType}>
+              {item.ticketType}
+            </Text>
+          </View>
+        </View>
+        <View style={itemStyles(colors).timeContainer}>
+          <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+          <Text style={itemStyles(colors).time}>{time}</Text>
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
   );
 };
 
-// Estilos para RecentValidationItem
-const itemStyles = (colors: any) => StyleSheet.create({
+// Estilos para RecentValidationItem - MEJORADOS
+const itemStyles = (colors: any) =>
+  StyleSheet.create({
     container: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: colors.surface,
-        padding: Spacing.md,
-        borderRadius: BorderRadius.sm,
-        marginBottom: Spacing.sm,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      padding: Spacing.md,
+      borderRadius: BorderRadius.lg,
+      marginBottom: Spacing.md,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.05)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    iconContainer: {
+      width: 44,
+      height: 44,
+      borderRadius: BorderRadius.full,
+      backgroundColor: 'rgba(0, 208, 132, 0.1)',
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     info: {
-        flex: 1,
-        marginHorizontal: Spacing.md,
+      flex: 1,
+      marginHorizontal: Spacing.md,
     },
     userName: {
-        color: colors.text,
-        fontWeight: '600',
-        fontSize: FontSizes.sm,
+      color: colors.text,
+      fontWeight: '600',
+      fontSize: FontSizes.md,
+      marginBottom: Spacing.xs / 2,
+    },
+    ticketTypeContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.xs / 2,
     },
     ticketType: {
-        color: colors.textSecondary,
-        fontSize: FontSizes.xs,
-        textTransform: 'capitalize',
+      color: colors.textSecondary,
+      fontSize: FontSizes.sm,
+    },
+    timeContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.xs / 2,
+      backgroundColor: 'rgba(0, 208, 132, 0.05)',
+      paddingHorizontal: Spacing.sm,
+      paddingVertical: Spacing.xs / 2,
+      borderRadius: BorderRadius.sm,
     },
     time: {
-        color: colors.textSecondary,
-        fontSize: FontSizes.xs,
-        fontWeight: '500',
+      color: colors.textSecondary,
+      fontSize: FontSizes.xs,
+      fontWeight: '600',
     },
-});
+  });
 
 const getStyles = (colors: (typeof Colors)['dark']) =>
   StyleSheet.create({
@@ -542,32 +747,38 @@ const getStyles = (colors: (typeof Colors)['dark']) =>
       alignItems: 'center',
       padding: Spacing.lg,
       paddingTop: Platform.OS === 'ios' ? 60 : Spacing.lg,
-      backgroundColor: colors.surface,
       borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      borderBottomColor: 'rgba(255, 255, 255, 0.05)',
       gap: Spacing.md,
     },
     backButton: {
-      padding: Spacing.xs,
+      width: 44,
+      height: 44,
+      borderRadius: BorderRadius.md,
+      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     headerContent: {
       flex: 1,
     },
     headerTitle: {
-      fontSize: FontSizes.xl,
-      fontWeight: '700',
+      fontSize: FontSizes.xxl,
+      fontWeight: '800',
       color: colors.text,
+      letterSpacing: -0.5,
     },
     eventSelector: {
       flexDirection: 'row',
       alignItems: 'center',
       marginTop: Spacing.xs,
       gap: Spacing.xs,
+      paddingVertical: Spacing.xs / 2,
     },
     eventSelectorText: {
       fontSize: FontSizes.sm,
       color: colors.primary,
-      fontWeight: '500',
+      fontWeight: '600',
       maxWidth: 200,
     },
     headerActions: {
@@ -577,16 +788,21 @@ const getStyles = (colors: (typeof Colors)['dark']) =>
     },
     syncButton: {
       backgroundColor: colors.primary,
-      width: 44,
-      height: 44,
+      width: 48,
+      height: 48,
       borderRadius: BorderRadius.full,
       justifyContent: 'center',
       alignItems: 'center',
       position: 'relative',
+      shadowColor: colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 6,
     },
     logoutButton: {
-      width: 44,
-      height: 44,
+      width: 48,
+      height: 48,
       borderRadius: BorderRadius.md,
       justifyContent: 'center',
       alignItems: 'center',
@@ -597,16 +813,19 @@ const getStyles = (colors: (typeof Colors)['dark']) =>
       top: -4,
       right: -4,
       backgroundColor: colors.error,
-      width: 20,
-      height: 20,
-      borderRadius: 10,
+      minWidth: 22,
+      height: 22,
+      borderRadius: 11,
       justifyContent: 'center',
       alignItems: 'center',
+      paddingHorizontal: 6,
+      borderWidth: 2,
+      borderColor: colors.surface,
     },
     syncBadgeText: {
       fontSize: FontSizes.xs,
       color: colors.white,
-      fontWeight: '700',
+      fontWeight: '800',
     },
     content: {
       flex: 1,
@@ -616,59 +835,98 @@ const getStyles = (colors: (typeof Colors)['dark']) =>
       padding: Spacing.lg,
     },
     actionsContainer: {
-      marginVertical: Spacing.lg,
-      alignItems: 'center',
+      marginVertical: Spacing.xl,
     },
     mainActionButton: {
-      backgroundColor: colors.primary,
-      borderRadius: BorderRadius.md,
-      padding: Spacing.lg,
-      flexDirection: 'row',
+      borderRadius: BorderRadius.xl,
+      overflow: 'hidden',
+      shadowColor: '#00D084',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.3,
+      shadowRadius: 16,
+      elevation: 8,
+    },
+    mainActionGradient: {
+      padding: Spacing.xl,
       alignItems: 'center',
+    },
+    scanIconContainer: {
+      width: 80,
+      height: 80,
+      borderRadius: BorderRadius.full,
+      backgroundColor: 'rgba(255, 255, 255, 0.2)',
       justifyContent: 'center',
-      width: '100%',
-      elevation: 4,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
+      alignItems: 'center',
+      marginBottom: Spacing.md,
     },
     mainActionButtonText: {
       color: colors.white,
-      fontSize: FontSizes.lg,
-      fontWeight: '700',
-      marginLeft: Spacing.md,
+      fontSize: FontSizes.xl,
+      fontWeight: '800',
+      letterSpacing: -0.5,
+    },
+    mainActionButtonSubtext: {
+      color: 'rgba(255, 255, 255, 0.8)',
+      fontSize: FontSizes.sm,
+      fontWeight: '500',
+      marginTop: Spacing.xs / 2,
     },
     secondaryActionButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
       marginTop: Spacing.lg,
+      padding: Spacing.md,
+      backgroundColor: 'rgba(0, 208, 132, 0.05)',
+      borderRadius: BorderRadius.md,
+      borderWidth: 1,
+      borderColor: 'rgba(0, 208, 132, 0.2)',
+      gap: Spacing.sm,
     },
     secondaryActionButtonText: {
       color: colors.primary,
       fontSize: FontSizes.md,
       fontWeight: '600',
+      flex: 1,
     },
     recentActivityContainer: {
       flex: 1,
       marginTop: Spacing.lg,
     },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.sm,
+      marginBottom: Spacing.md,
+    },
     recentActivityTitle: {
-      fontSize: FontSizes.lg,
+      fontSize: FontSizes.xl,
       fontWeight: '700',
       color: colors.text,
-      marginBottom: Spacing.md,
     },
     emptyStateContainer: {
       flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
       backgroundColor: colors.surface,
-      borderRadius: BorderRadius.md,
-      padding: Spacing.lg,
+      borderRadius: BorderRadius.xl,
+      padding: Spacing.xxxl,
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.05)',
+      borderStyle: 'dashed',
+    },
+    emptyStateTitle: {
+      fontSize: FontSizes.lg,
+      fontWeight: '700',
+      color: colors.text,
+      marginTop: Spacing.md,
     },
     emptyStateText: {
-      marginTop: Spacing.md,
+      marginTop: Spacing.xs,
       color: colors.textSecondary,
       fontSize: FontSizes.sm,
+      textAlign: 'center',
+      maxWidth: 250,
     },
     noEventContainer: {
       flex: 1,
@@ -676,33 +934,59 @@ const getStyles = (colors: (typeof Colors)['dark']) =>
       alignItems: 'center',
       padding: Spacing.xl,
     },
+    noEventIconContainer: {
+      width: 140,
+      height: 140,
+      borderRadius: BorderRadius.full,
+      backgroundColor: 'rgba(0, 208, 132, 0.1)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: Spacing.xl,
+    },
+    noEventTitle: {
+      fontSize: FontSizes.xxl,
+      fontWeight: '800',
+      color: colors.text,
+      marginBottom: Spacing.sm,
+    },
     noEventText: {
       fontSize: FontSizes.md,
       color: colors.textSecondary,
-      marginTop: Spacing.md,
-      marginBottom: Spacing.lg,
+      marginBottom: Spacing.xl,
       textAlign: 'center',
+      maxWidth: 300,
+      lineHeight: 22,
     },
     selectEventButton: {
-      backgroundColor: colors.primary,
+      borderRadius: BorderRadius.lg,
+      overflow: 'hidden',
+      shadowColor: '#00D084',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 6,
+    },
+    gradientButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
       paddingHorizontal: Spacing.xl,
       paddingVertical: Spacing.md,
-      borderRadius: BorderRadius.md,
+      gap: Spacing.sm,
     },
     selectEventButtonText: {
       color: colors.white,
-      fontSize: FontSizes.md,
-      fontWeight: '600',
+      fontSize: FontSizes.lg,
+      fontWeight: '700',
     },
     modalOverlay: {
       flex: 1,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      backgroundColor: 'rgba(0, 0, 0, 0.7)',
       justifyContent: 'flex-end',
     },
     modalContainer: {
       backgroundColor: colors.background,
-      borderTopLeftRadius: BorderRadius.xl,
-      borderTopRightRadius: BorderRadius.xl,
+      borderTopLeftRadius: BorderRadius.xxl,
+      borderTopRightRadius: BorderRadius.xxl,
       maxHeight: '80%',
       paddingBottom: Platform.OS === 'ios' ? 40 : Spacing.lg,
     },
@@ -710,14 +994,19 @@ const getStyles = (colors: (typeof Colors)['dark']) =>
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      padding: Spacing.lg,
+      padding: Spacing.xl,
       borderBottomWidth: 1,
-      borderBottomColor: colors.border,
+      borderBottomColor: 'rgba(255, 255, 255, 0.05)',
     },
     modalTitle: {
-      fontSize: FontSizes.xl,
-      fontWeight: '700',
+      fontSize: FontSizes.xxl,
+      fontWeight: '800',
       color: colors.text,
+    },
+    loadingContainer: {
+      padding: Spacing.xxxl,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     eventList: {
       padding: Spacing.lg,
@@ -725,42 +1014,72 @@ const getStyles = (colors: (typeof Colors)['dark']) =>
     eventItem: {
       backgroundColor: colors.surface,
       padding: Spacing.lg,
-      borderRadius: BorderRadius.md,
+      borderRadius: BorderRadius.lg,
       marginBottom: Spacing.md,
       borderWidth: 2,
-      borderColor: 'transparent',
+      borderColor: 'rgba(255, 255, 255, 0.05)',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
     },
     eventItemSelected: {
       borderColor: colors.primary,
       backgroundColor: 'rgba(0, 208, 132, 0.1)',
+      shadowColor: colors.primary,
+      shadowOpacity: 0.3,
     },
     eventItemHeader: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: Spacing.sm,
+      marginBottom: Spacing.md,
+      gap: Spacing.md,
+    },
+    eventIconContainer: {
+      width: 48,
+      height: 48,
+      borderRadius: BorderRadius.md,
+      backgroundColor: 'rgba(0, 208, 132, 0.1)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    eventItemContent: {
+      flex: 1,
     },
     eventItemTitle: {
       fontSize: FontSizes.lg,
-      fontWeight: '600',
+      fontWeight: '700',
       color: colors.text,
-      flex: 1,
+      marginBottom: Spacing.xs / 2,
     },
     eventItemMeta: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: Spacing.xs,
-      marginBottom: Spacing.xs,
+      gap: Spacing.xs / 2,
     },
     eventItemMetaText: {
       fontSize: FontSizes.sm,
       color: colors.textSecondary,
+      flex: 1,
     },
-    eventItemProgress: {
+    eventItemFooter: {
       marginTop: Spacing.sm,
       paddingTop: Spacing.sm,
       borderTopWidth: 1,
-      borderTopColor: colors.border,
+      borderTopColor: 'rgba(255, 255, 255, 0.05)',
+    },
+    progressBarContainer: {
+      height: 8,
+      backgroundColor: 'rgba(255, 255, 255, 0.05)',
+      borderRadius: BorderRadius.sm,
+      overflow: 'hidden',
+      marginBottom: Spacing.xs,
+    },
+    progressBar: {
+      height: '100%',
+      backgroundColor: colors.primary,
+      borderRadius: BorderRadius.sm,
     },
     eventItemProgressText: {
       fontSize: FontSizes.sm,
@@ -768,9 +1087,9 @@ const getStyles = (colors: (typeof Colors)['dark']) =>
       fontWeight: '600',
     },
     manualInputOverlay: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-        justifyContent: 'center',
-        alignItems: 'center',
-    }
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
   });

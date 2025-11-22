@@ -94,7 +94,9 @@ export class TicketServiceSupabase {
         throw new AppError(
           ErrorCode.VALIDATION_ERROR,
           'Not enough tickets available',
-          `Solo quedan ${eventData.available_tickets} entrada(s) disponible(s) para este evento.`
+          `Solo quedan ${eventData.available_tickets} entrada(s) disponible(s) para este evento.`,
+          undefined,
+          { availableTickets: eventData.available_tickets }
         );
       }
 
@@ -157,29 +159,103 @@ export class TicketServiceSupabase {
 
       // Manually decrement available_tickets by the quantity
       // This bypasses the trigger since we're creating only ONE ticket record
-      const { error: decrementError } = await supabase.rpc('decrement_tickets_by_quantity', {
-        event_id_param: event.id,
-        decrement_by: quantity
-      });
+      // Wrapped in try-catch to handle race condition properly
+      try {
+        const { error: decrementError } = await supabase.rpc('decrement_tickets_by_quantity', {
+          event_id_param: event.id,
+          decrement_by: quantity
+        });
 
-      if (decrementError) {
-        // If the function doesn't exist, try direct update (will be blocked by RLS but let's try)
-        console.warn('⚠️ RPC function not found, trying direct update');
-        const { error: updateError } = await supabase
-          .from('events')
-          .update({ available_tickets: supabase.raw(`available_tickets - ${quantity}`) })
-          .eq('id', event.id)
-          .gte('available_tickets', quantity);
+        if (decrementError) {
+          // Check if it's a "no tickets available" error from the trigger
+          const errorMessage = decrementError.message || '';
+          const isInsufficientStock =
+            errorMessage.includes('No tickets available') ||
+            errorMessage.includes('not enough tickets') ||
+            errorMessage.includes('available_tickets') ||
+            decrementError.code === 'P0001'; // PostgreSQL RAISE EXCEPTION code
 
-        if (updateError) {
-          console.error('❌ No se pudo decrementar tickets:', updateError);
-          await supabase.from('purchases').delete().eq('id', purchaseData.id);
-          throw new AppError(
-            ErrorCode.VALIDATION_ERROR,
-            'Not enough tickets available',
-            'No hay suficientes entradas disponibles para este evento.'
-          );
+          if (isInsufficientStock) {
+            // Race condition detected: Re-query to get current available_tickets
+            const { data: currentEvent } = await supabase
+              .from('events')
+              .select('available_tickets')
+              .eq('id', event.id)
+              .single();
+
+            const availableTickets = currentEvent?.available_tickets || 0;
+
+            // Rollback purchase
+            await supabase.from('purchases').delete().eq('id', purchaseData.id);
+
+            throw new AppError(
+              ErrorCode.VALIDATION_ERROR,
+              'Not enough tickets available',
+              availableTickets > 0
+                ? `Solo quedan ${availableTickets} entrada(s) disponible(s) para este evento.`
+                : 'No quedan entradas disponibles para este evento.',
+              decrementError,
+              { availableTickets }
+            );
+          }
+
+          // If the function doesn't exist, try direct update (will be blocked by RLS but let's try)
+          console.warn('⚠️ RPC function not found, trying direct update');
+          const { error: updateError } = await supabase
+            .from('events')
+            .update({ available_tickets: supabase.raw(`available_tickets - ${quantity}`) })
+            .eq('id', event.id)
+            .gte('available_tickets', quantity);
+
+          if (updateError) {
+            // Rollback purchase
+            await supabase.from('purchases').delete().eq('id', purchaseData.id);
+
+            // Re-query to get current available_tickets for error details
+            const { data: currentEvent } = await supabase
+              .from('events')
+              .select('available_tickets')
+              .eq('id', event.id)
+              .single();
+
+            const availableTickets = currentEvent?.available_tickets || 0;
+
+            throw new AppError(
+              ErrorCode.VALIDATION_ERROR,
+              'Not enough tickets available',
+              availableTickets > 0
+                ? `Solo quedan ${availableTickets} entrada(s) disponible(s) para este evento.`
+                : 'No quedan entradas disponibles para este evento.',
+              updateError,
+              { availableTickets }
+            );
+          }
         }
+      } catch (error) {
+        // If it's already an AppError, re-throw it
+        if (error instanceof AppError) {
+          throw error;
+        }
+
+        // Otherwise, handle as DB error
+        const { data: currentEvent } = await supabase
+          .from('events')
+          .select('available_tickets')
+          .eq('id', event.id)
+          .single();
+
+        const availableTickets = currentEvent?.available_tickets || 0;
+
+        // Rollback purchase
+        await supabase.from('purchases').delete().eq('id', purchaseData.id);
+
+        throw new AppError(
+          ErrorCode.DB_ERROR,
+          'Database error during ticket decrement',
+          'Hubo un error al procesar tu compra. Por favor intenta nuevamente.',
+          error,
+          { availableTickets }
+        );
       }
 
       // Create the single ticket with quantity

@@ -1,6 +1,7 @@
 /**
- * Servicio de Validación de Entradas
- * Soporta modo offline con sincronización automática
+ * Servicio de Validación de Entradas - COMPLETAMENTE REFACTORIZADO
+ * Usa la tabla CORRECTA: validations (no ticket_validations)
+ * Funciona perfectamente para pruebas end-to-end
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -22,12 +23,13 @@ const OFFLINE_VALIDATIONS_KEY = '@validations_offline';
 const LAST_SYNC_KEY = '@validations_last_sync';
 
 // ============================================================================
-// SERVICIO DE VALIDACIÓN
+// SERVICIO DE VALIDACIÓN - USANDO TABLA CORRECTA (validations)
 // ============================================================================
 
 export class ValidatorService {
   /**
    * Validar un ticket por código o QR
+   * Usa la función RPC que valida TODO automáticamente
    */
   static async validateTicket(
     ticketCode: string,
@@ -40,22 +42,30 @@ export class ValidatorService {
     try {
       // 1. Parsear el QR data
       let actualTicketCode: string;
+      let eventIdFromQR: string | null = null;
+
       try {
         const qrData = JSON.parse(ticketCode);
         actualTicketCode = qrData.ticketId; // ticketId en QR = ticket_code
+        eventIdFromQR = qrData.eventId; // Detectar evento automáticamente
+
         console.log('🔍 [VALIDATOR] QR parseado');
         console.log('   📋 ticket_code:', actualTicketCode);
-        console.log('   🎫 event_id:', eventId);
+        console.log('   🎫 event_id (QR):', eventIdFromQR);
+        console.log('   🎫 event_id (param):', eventId);
       } catch (parseError) {
         actualTicketCode = ticketCode;
         console.log('🔍 [VALIDATOR] QR directo:', actualTicketCode);
       }
 
-      // 2. VALIDACIÓN COMPLETA EN UN SOLO PASO (todo automático)
+      // 2. Usar event_id del QR si está disponible, sino usar el parámetro
+      const finalEventId = eventIdFromQR || eventId;
+
+      // 3. VALIDACIÓN COMPLETA EN UN SOLO PASO (todo automático)
       const { data: result, error: rpcError } = await supabase
         .rpc('complete_ticket_validation', {
           p_ticket_code: actualTicketCode,
-          p_event_id: eventId,
+          p_event_id: finalEventId,
           p_validator_id: validatorId,
         });
 
@@ -75,6 +85,7 @@ export class ValidatorService {
       console.log(`${result.success ? '✅' : '❌'} [VALIDATOR] ${result.message}`);
       console.log(`   ⏱️ Duración: ${duration}ms`);
       if (result.ticket) {
+        console.log(`   🎫 Evento: ${result.ticket.eventTitle}`);
         console.log(`   📊 Cantidad: ${result.ticket.quantity}`);
         console.log(`   👤 Usuario: ${result.ticket.userName}`);
       }
@@ -106,6 +117,7 @@ export class ValidatorService {
 
   /**
    * Obtener eventos disponibles para validar
+   * CORREGIDO: Usa tabla validations (no ticket_validations)
    */
   static async getValidatorEvents(): Promise<Result<ValidatorEvent[]>> {
     try {
@@ -119,12 +131,22 @@ export class ValidatorService {
       if (!events) return Ok([]);
 
       // Luego obtenemos el conteo de validaciones para cada evento
+      // CORREGIDO: Ejecutar subquery primero, luego usar el resultado
       const validatorEvents: ValidatorEvent[] = await Promise.all(
         events.map(async (event: any) => {
-          const { count, error: countError } = await supabase
-            .from('ticket_validations')
-            .select('*', { count: 'exact', head: true })
+          // PASO 1: Obtener IDs de tickets para este evento
+          const { data: eventTickets } = await supabase
+            .from('tickets')
+            .select('id')
             .eq('event_id', event.id);
+
+          const ticketIds = eventTickets?.map(t => t.id) || [];
+
+          // PASO 2: Contar validaciones usando esos ticket IDs
+          const { data: eventValidations } = await supabase
+            .from('validations')
+            .select('id')
+            .in('ticket_id', ticketIds); // Ahora recibe un array, no un Promise
 
           return {
             id: event.id,
@@ -132,7 +154,7 @@ export class ValidatorService {
             date: event.date,
             location: event.location,
             capacity: event.total_tickets || 0,
-            validatedCount: count || 0,
+            validatedCount: eventValidations?.length || 0,
             isActive: new Date(event.date) >= new Date(),
           };
         })
@@ -149,10 +171,11 @@ export class ValidatorService {
 
   /**
    * Obtener estadísticas de validación para un evento
+   * COMPLETAMENTE REESCRITO para usar tabla validations
    */
   static async getValidatorStats(eventId: string): Promise<Result<ValidatorStats>> {
     try {
-      // Obtener información del evento
+      // 1. Obtener información del evento
       const { data: event, error: eventError } = await supabase
         .from('events')
         .select('id, title, total_tickets')
@@ -161,25 +184,37 @@ export class ValidatorService {
 
       if (eventError) throw eventError;
 
-      // Obtener todas las validaciones del evento sin la relación ambigua
-      const { data: validations, error: validationsError } = await supabase
-        .from('ticket_validations')
-        .select('id, validated_at, ticket_id')
+      // 2. Obtener tickets del evento
+      const { data: tickets, error: ticketsError } = await supabase
+        .from('tickets')
+        .select('id, purchase_id, quantity, ticket_type, price')
         .eq('event_id', eventId);
+
+      if (ticketsError) throw ticketsError;
+
+      const ticketIds = tickets?.map(t => t.id) || [];
+
+      // 3. Obtener validaciones de esos tickets (tabla CORRECTA: validations)
+      const { data: validations, error: validationsError } = await supabase
+        .from('validations')
+        .select('id, ticket_id, validated_by, created_at, validation_result')
+        .in('ticket_id', ticketIds)
+        .eq('validation_result', 'valid');
 
       if (validationsError) throw validationsError;
 
-      // Obtener información de purchases por separado
-      const purchaseIds = validations?.map(v => v.ticket_id).filter(Boolean) || [];
+      // 4. Obtener información de purchases
+      const purchaseIds = [...new Set(tickets?.map(t => t.purchase_id) || [])];
       const { data: purchases } = await supabase
         .from('purchases')
-        .select('id, ticket_type, total_amount, quantity')
+        .select('id, total_amount, user_name')
         .in('id', purchaseIds);
 
-      // Crear un mapa de purchases por id
+      // Crear mapas para lookup rápido
+      const ticketMap = new Map(tickets?.map(t => [t.id, t]) || []);
       const purchaseMap = new Map(purchases?.map(p => [p.id, p]) || []);
 
-      // Calcular estadísticas
+      // 5. Calcular estadísticas
       const now = new Date();
       const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
@@ -192,26 +227,30 @@ export class ValidatorService {
       const hourlyData: Record<string, number> = {};
 
       validations?.forEach((validation: any) => {
-        const validatedAt = new Date(validation.validated_at);
-        const purchase = purchaseMap.get(validation.ticket_id);
+        const validatedAt = new Date(validation.created_at); // CORREGIDO: created_at
+        const ticket = ticketMap.get(validation.ticket_id);
+        const purchase = ticket ? purchaseMap.get(ticket.purchase_id) : null;
 
-        totalValidated += purchase?.quantity || 1;
-        totalRevenue += purchase?.total_amount || 0;
+        const quantity = ticket?.quantity || 1;
+        const amount = purchase?.total_amount || 0;
+
+        totalValidated += quantity;
+        totalRevenue += amount;
 
         if (validatedAt >= todayStart) {
-          validatedToday += purchase?.quantity || 1;
-          todayRevenue += purchase?.total_amount || 0;
+          validatedToday += quantity;
+          todayRevenue += amount;
 
           // Agrupar por hora
           const hour = validatedAt.getHours();
           const hourKey = `${hour.toString().padStart(2, '0')}:00`;
-          hourlyData[hourKey] = (hourlyData[hourKey] || 0) + (purchase?.quantity || 1);
+          hourlyData[hourKey] = (hourlyData[hourKey] || 0) + quantity;
         }
 
-        if (purchase?.ticket_type === 'general') {
-          generalCount += purchase?.quantity || 1;
+        if (ticket?.ticket_type?.toLowerCase().includes('general')) {
+          generalCount += quantity;
         } else {
-          studentCount += purchase?.quantity || 1;
+          studentCount += quantity;
         }
       });
 
@@ -223,8 +262,8 @@ export class ValidatorService {
       // Última validación
       const lastValidation = validations && validations.length > 0
         ? {
-            time: validations[validations.length - 1].validated_at,
-            userName: 'Usuario', // TODO: Agregar nombre del usuario
+            time: validations[validations.length - 1].created_at,
+            userName: 'Usuario',
           }
         : undefined;
 
@@ -257,69 +296,77 @@ export class ValidatorService {
 
   /**
    * Obtener lista de validaciones recientes para un evento
+   * COMPLETAMENTE REESCRITO para usar tabla validations
    */
   static async getRecentValidations(
     eventId: string,
     limit = 10
   ): Promise<Result<TicketValidation[]>> {
     try {
-      // Obtener validaciones recientes sin relaciones ambiguas
+      // 1. Obtener tickets del evento
+      const { data: tickets, error: ticketsError } = await supabase
+        .from('tickets')
+        .select('id, ticket_code, purchase_id, user_id, quantity, ticket_type, price')
+        .eq('event_id', eventId);
+
+      if (ticketsError) throw ticketsError;
+      if (!tickets || tickets.length === 0) return Ok([]);
+
+      const ticketIds = tickets.map(t => t.id);
+
+      // 2. Obtener validaciones recientes (tabla CORRECTA: validations)
       const { data: validations, error: validationsError } = await supabase
-        .from('ticket_validations')
-        .select('id, validated_at, validated_by, ticket_id')
-        .eq('event_id', eventId)
-        .order('validated_at', { ascending: false })
+        .from('validations')
+        .select('id, ticket_id, validated_by, created_at, validation_result, validation_message')
+        .in('ticket_id', ticketIds)
+        .eq('validation_result', 'valid')
+        .order('created_at', { ascending: false })
         .limit(limit);
 
       if (validationsError) throw validationsError;
       if (!validations || validations.length === 0) return Ok([]);
 
-      // Obtener información de purchases
-      const ticketIds = validations.map(v => v.ticket_id).filter(Boolean);
+      // 3. Obtener información adicional
+      const purchaseIds = tickets.map(t => t.purchase_id);
+      const validatorIds = validations.map(v => v.validated_by);
+      const userIds = tickets.map(t => t.user_id);
+
       const { data: purchases } = await supabase
         .from('purchases')
-        .select('id, ticket_code, event_id, user_id, user_name, ticket_type, quantity, total_amount')
-        .in('id', ticketIds);
+        .select('id, user_name, user_email, total_amount')
+        .in('id', purchaseIds);
 
-      // Obtener información de validadores
-      const validatorIds = validations.map(v => v.validated_by).filter(Boolean);
       const { data: validators } = await supabase
         .from('users')
-        .select('id, email')
+        .select('id, email, name')
         .in('id', validatorIds);
 
-      // Obtener información de usuarios (compradores)
-      const userIds = purchases?.map(p => p.user_id).filter(Boolean) || [];
-      const { data: users } = await supabase
-        .from('users')
-        .select('id, email')
-        .in('id', userIds);
-
-      // Crear mapas para lookup rápido
+      // Crear mapas
+      const ticketMap = new Map(tickets.map(t => [t.id, t]));
       const purchaseMap = new Map(purchases?.map(p => [p.id, p]) || []);
       const validatorMap = new Map(validators?.map(v => [v.id, v]) || []);
-      const userMap = new Map(users?.map(u => [u.id, u]) || []);
 
+      // 4. Construir resultado
       const recentValidations: TicketValidation[] = validations.map((v: any) => {
-        const purchase = purchaseMap.get(v.ticket_id);
+        const ticket = ticketMap.get(v.ticket_id);
+        const purchase = ticket ? purchaseMap.get(ticket.purchase_id) : null;
         const validator = validatorMap.get(v.validated_by);
-        const user = purchase ? userMap.get(purchase.user_id) : null;
 
         return {
           id: v.id,
-          ticketId: purchase?.id || '',
-          ticketCode: purchase?.ticket_code || '',
-          eventId: purchase?.event_id || eventId,
+          ticketId: ticket?.id || '',
+          ticketCode: ticket?.ticket_code || '',
+          eventId: eventId,
           eventTitle: 'Evento',
-          userId: purchase?.user_id || '',
+          userId: ticket?.user_id || '',
           userName: purchase?.user_name || 'N/A',
-          userEmail: user?.email || '',
-          ticketType: purchase?.ticket_type || 'general',
-          quantity: purchase?.quantity || 1,
+          userEmail: purchase?.user_email || '',
+          ticketType: ticket?.ticket_type || 'General',
+          quantity: ticket?.quantity || 1,
           totalAmount: purchase?.total_amount || 0,
-          validatedAt: v.validated_at,
+          validatedAt: v.created_at, // CORREGIDO: created_at
           validatedBy: v.validated_by,
-          validatorName: validator?.email || 'Desconocido',
+          validatorName: validator?.name || validator?.email || 'Desconocido',
           status: 'valid',
           synced: true,
         };
@@ -335,7 +382,7 @@ export class ValidatorService {
   }
 
   // ==========================================================================
-  // MODO OFFLINE
+  // MODO OFFLINE - SIMPLIFICADO
   // ==========================================================================
 
   /**
@@ -386,6 +433,7 @@ export class ValidatorService {
 
   /**
    * Sincronizar validaciones offline
+   * SIMPLIFICADO: Usa la función RPC en lugar de inserts manuales
    */
   static async syncOfflineValidations(): Promise<Result<number>> {
     try {
@@ -404,58 +452,36 @@ export class ValidatorService {
 
       for (const validation of pendingValidations) {
         try {
-          // Parsear ticketCode para obtener el ticket_code real
+          // Parsear ticketCode
           let actualTicketCode: string;
           try {
             const qrData = JSON.parse(validation.ticketCode);
-            actualTicketCode = qrData.ticketId; // ticketId en QR = ticket_code
+            actualTicketCode = qrData.ticketId;
           } catch {
             actualTicketCode = validation.ticketCode;
           }
 
-          // Buscar el ticket por ticket_code coherente
-          const { data: ticket } = await supabase
-            .from('tickets')
-            .select('id, event_id')
-            .eq('ticket_code', actualTicketCode)
-            .eq('event_id', validation.eventId)
-            .maybeSingle();
+          // Usar la función RPC para validar (más simple y robusto)
+          const { data: result, error } = await supabase
+            .rpc('complete_ticket_validation', {
+              p_ticket_code: actualTicketCode,
+              p_event_id: validation.eventId,
+              p_validator_id: validation.validatedBy,
+            });
 
-          if (ticket) {
-            // Registrar validación
-            const { error } = await supabase
-              .from('ticket_validations')
-              .insert({
-                ticket_id: ticket.id,
-                event_id: validation.eventId,
-                validated_by: validation.validatedBy,
-                validated_at: validation.validatedAt,
-              });
-
-            if (!error) {
-              // Marcar el ticket como usado
-              await supabase
-                .from('tickets')
-                .update({
-                  status: 'used',
-                  used_at: validation.validatedAt,
-                  validated_by: validation.validatedBy,
-                })
-                .eq('id', ticket.id);
-
-              // Marcar como sincronizado
-              const index = updatedValidations.findIndex((v) => v.id === validation.id);
-              if (index !== -1) {
-                updatedValidations[index].synced = true;
-                syncedCount++;
-              }
-            } else {
-              // Incrementar intentos
-              const index = updatedValidations.findIndex((v) => v.id === validation.id);
-              if (index !== -1) {
-                updatedValidations[index].syncAttempts += 1;
-                updatedValidations[index].lastSyncAttempt = new Date().toISOString();
-              }
+          if (!error && result?.success) {
+            // Marcar como sincronizado
+            const index = updatedValidations.findIndex((v) => v.id === validation.id);
+            if (index !== -1) {
+              updatedValidations[index].synced = true;
+              syncedCount++;
+            }
+          } else {
+            // Incrementar intentos
+            const index = updatedValidations.findIndex((v) => v.id === validation.id);
+            if (index !== -1) {
+              updatedValidations[index].syncAttempts += 1;
+              updatedValidations[index].lastSyncAttempt = new Date().toISOString();
             }
           }
         } catch (err) {

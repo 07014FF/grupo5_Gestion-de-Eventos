@@ -88,7 +88,9 @@
       "Bash(chmod:*)",
       "Bash(bash:*)",
       "Bash(python3:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "mcp__supabase__generate_typescript_types",
+      "mcp__supabase__list_tables"
     ],
     "deny": [],
     "ask": []
