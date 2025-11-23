@@ -90,7 +90,8 @@
       "Bash(python3:*)",
       "Bash(wc:*)",
       "mcp__supabase__generate_typescript_types",
-      "mcp__supabase__list_tables"
+      "mcp__supabase__list_tables",
+      "Bash(timeout 90 npx supabase db push:*)"
     ],
     "deny": [],
     "ask": []

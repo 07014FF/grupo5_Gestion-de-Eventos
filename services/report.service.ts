@@ -1,6 +1,9 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 import { Alert } from 'react-native';
+import { AdminService, EventStatistics, SalesReport, DashboardMetrics } from './admin.service';
+import { Result, handleError } from '@/utils/errors';
 
 interface DashboardStats {
   totalEvents: number;
@@ -426,5 +429,198 @@ export class ReportService {
 
 Generado automáticamente por el sistema.
     `.trim();
+  }
+
+  /**
+   * Exporta reporte de ventas en formato CSV (compatible con Excel)
+   */
+  static async exportSalesReportCSV(
+    userId: string,
+    userRole: string,
+    startDate?: string,
+    endDate?: string
+  ): Promise<Result<void>> {
+    try {
+      const salesResult = await AdminService.getSalesReport(userId, userRole, startDate, endDate);
+
+      if (!salesResult.success) {
+        throw salesResult.error;
+      }
+
+      const salesData = salesResult.data;
+      const csv = this.generateSalesCSV(salesData);
+      const fileName = `ventas_${new Date().toISOString().split('T')[0]}.csv`;
+      const filePath = `${FileSystem.documentDirectory}${fileName}`;
+
+      await FileSystem.writeAsStringAsync(filePath, csv, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(filePath, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Exportar Reporte de Ventas',
+        });
+      }
+
+      return { success: true, data: undefined };
+    } catch (error) {
+      return handleError(error, 'ReportService.exportSalesReportCSV');
+    }
+  }
+
+  /**
+   * Exporta estadísticas de eventos en formato CSV
+   */
+  static async exportEventStatisticsCSV(
+    userId: string,
+    userRole: string
+  ): Promise<Result<void>> {
+    try {
+      const statsResult = await AdminService.getEventStatistics(userId, userRole);
+
+      if (!statsResult.success) {
+        throw statsResult.error;
+      }
+
+      const eventStats = statsResult.data;
+      const csv = this.generateEventStatsCSV(eventStats);
+      const fileName = `estadisticas_eventos_${new Date().toISOString().split('T')[0]}.csv`;
+      const filePath = `${FileSystem.documentDirectory}${fileName}`;
+
+      await FileSystem.writeAsStringAsync(filePath, csv, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(filePath, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Exportar Estadísticas de Eventos',
+        });
+      }
+
+      return { success: true, data: undefined };
+    } catch (error) {
+      return handleError(error, 'ReportService.exportEventStatisticsCSV');
+    }
+  }
+
+  /**
+   * Exporta reporte completo en formato CSV con todas las métricas
+   */
+  static async exportCompleteReportCSV(
+    userId: string,
+    userRole: string
+  ): Promise<Result<void>> {
+    try {
+      const metricsResult = await AdminService.getDashboardMetrics(userId, userRole);
+      const statsResult = await AdminService.getEventStatistics(userId, userRole);
+      const salesResult = await AdminService.getSalesReport(userId, userRole);
+
+      if (!metricsResult.success || !statsResult.success || !salesResult.success) {
+        throw new Error('Error al obtener datos para el reporte');
+      }
+
+      const metrics = metricsResult.data;
+      const eventStats = statsResult.data;
+      const salesData = salesResult.data;
+
+      const BOM = '\uFEFF';
+      let csvContent = '';
+
+      csvContent += 'RESUMEN GENERAL\n';
+      csvContent += 'Métrica,Valor\n';
+      csvContent += `Total de Eventos,${metrics.totalEvents}\n`;
+      csvContent += `Eventos Activos,${metrics.activeEvents}\n`;
+      csvContent += `Total de Ventas,${metrics.totalSales}\n`;
+      csvContent += `Ingresos Totales (S/),${metrics.totalRevenue.toFixed(2)}\n`;
+
+      if (userRole === 'super_admin') {
+        csvContent += `Total de Usuarios,${metrics.totalUsers}\n`;
+        csvContent += `Total de Validadores,${metrics.totalValidators}\n`;
+      }
+
+      csvContent += '\n\n';
+
+      csvContent += 'ESTADÍSTICAS POR EVENTO\n';
+      csvContent +=
+        'Evento,Tickets Vendidos,Ingresos (S/),Disponibles,Validados,Tasa Validación (%)\n';
+
+      eventStats.forEach((stat) => {
+        csvContent += `"${stat.eventTitle}",${stat.totalTicketsSold},${stat.revenue.toFixed(
+          2
+        )},${stat.availableTickets},${stat.validatedTickets},${stat.validationRate.toFixed(2)}\n`;
+      });
+
+      csvContent += '\n\n';
+
+      csvContent += 'DETALLE DE VENTAS\n';
+      csvContent += 'Fecha,Evento,Tickets,Ingresos (S/),Método de Pago\n';
+
+      salesData.forEach((sale) => {
+        csvContent += `${new Date(sale.date).toLocaleString('es-PE')},"${
+          sale.eventTitle
+        }",${sale.ticketsSold},${sale.revenue.toFixed(2)},${sale.paymentMethod}\n`;
+      });
+
+      const fileName = `reporte_completo_${new Date().toISOString().split('T')[0]}.csv`;
+      const filePath = `${FileSystem.documentDirectory}${fileName}`;
+
+      await FileSystem.writeAsStringAsync(filePath, BOM + csvContent, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(filePath, {
+          mimeType: 'text/csv',
+          dialogTitle: 'Exportar Reporte Completo',
+        });
+      }
+
+      return { success: true, data: undefined };
+    } catch (error) {
+      return handleError(error, 'ReportService.exportCompleteReportCSV');
+    }
+  }
+
+  private static generateSalesCSV(salesData: SalesReport[]): string {
+    const headers = ['Fecha', 'Evento', 'Tickets Vendidos', 'Ingresos (S/)', 'Método de Pago'];
+    const rows = salesData.map((sale) => [
+      new Date(sale.date).toLocaleString('es-PE'),
+      `"${sale.eventTitle}"`,
+      sale.ticketsSold.toString(),
+      sale.revenue.toFixed(2),
+      sale.paymentMethod,
+    ]);
+
+    const BOM = '\uFEFF';
+    const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+
+    return BOM + csvContent;
+  }
+
+  private static generateEventStatsCSV(eventStats: EventStatistics[]): string {
+    const headers = [
+      'Evento',
+      'Tickets Vendidos',
+      'Ingresos (S/)',
+      'Tickets Disponibles',
+      'Tickets Validados',
+      'Tasa de Validación (%)',
+    ];
+
+    const rows = eventStats.map((stat) => [
+      `"${stat.eventTitle}"`,
+      stat.totalTicketsSold.toString(),
+      stat.revenue.toFixed(2),
+      stat.availableTickets.toString(),
+      stat.validatedTickets.toString(),
+      stat.validationRate.toFixed(2),
+    ]);
+
+    const BOM = '\uFEFF';
+    const csvContent = [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+
+    return BOM + csvContent;
   }
 }

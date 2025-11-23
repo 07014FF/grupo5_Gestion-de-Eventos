@@ -379,3 +379,6 @@ export const AdminFontSizes = {
   cardTitle: 18,
   sectionTitle: 22,
 };
+
+// Export default colors (para compatibilidad con componentes de admin)
+export const colors = Colors.light;
