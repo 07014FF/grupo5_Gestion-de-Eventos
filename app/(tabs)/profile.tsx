@@ -23,6 +23,7 @@ export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const { isDark, toggleTheme } = useTheme();
   const colors = useThemeColors();
+  const styles = React.useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
   // Debug: Ver qué rol tiene el usuario
   React.useEffect(() => {
@@ -50,11 +51,22 @@ export default function ProfileScreen() {
     console.log('✅ Sesión cerrada');
   };
 
+  const isValidator = user?.role === 'qr_validator';
+  const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
   const profileOptions = [
+    ...(isValidator || isAdmin ? [{
+      id: 'validator',
+      title: 'Panel de Validación',
+      icon: 'qr-code-outline' as const,
+      onPress: () => router.push('/validator'),
+      isToggle: false,
+      badge: 'Validador',
+    }] : []),
     {
       id: 'edit-profile',
       title: 'Editar Perfil',
-      icon: 'create-outline',
+      icon: 'create-outline' as const,
       onPress: handleEditProfile,
       isToggle: false,
     },
@@ -69,24 +81,24 @@ export default function ProfileScreen() {
     {
       id: 'notifications',
       title: 'Notificaciones',
-      icon: 'notifications-outline',
+      icon: 'notifications-outline' as const,
       onPress: () => console.log('Notifications'),
       isToggle: false,
     },
-    {
+    ...(!isValidator ? [{
       id: 'payment',
       title: 'Métodos de Pago',
-      icon: 'card-outline',
+      icon: 'card-outline' as const,
       onPress: () => console.log('Payment'),
       isToggle: false,
     },
     {
       id: 'help',
       title: 'Ayuda y Soporte',
-      icon: 'help-circle-outline',
+      icon: 'help-circle-outline' as const,
       onPress: () => console.log('Help'),
       isToggle: false,
-    },
+    }] : []),
   ];
 
   return (
@@ -104,7 +116,7 @@ export default function ProfileScreen() {
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
             <View style={styles.avatar}>
-              <Ionicons name="person" size={48} color={Colors.dark.primary} />
+              <Ionicons name="person" size={48} color={colors.primary} />
             </View>
             {/* Botón para editar foto */}
             <TouchableOpacity
@@ -158,7 +170,7 @@ export default function ProfileScreen() {
               accessibilityLabel="Editar perfil"
               accessibilityRole="button"
             >
-              <Ionicons name="create-outline" size={16} color={Colors.dark.primary} />
+              <Ionicons name="create-outline" size={16} color={colors.primary} />
               <Text style={styles.editButtonText}>Editar Perfil</Text>
             </TouchableOpacity>
           ) : (
@@ -252,7 +264,7 @@ export default function ProfileScreen() {
                 accessibilityLabel="Cerrar sesión"
                 accessibilityRole="button"
               >
-                <Ionicons name="log-out-outline" size={24} color={Colors.dark.error} />
+                <Ionicons name="log-out-outline" size={24} color={colors.buttonText} />
                 <Text style={styles.logoutButtonText}>Cerrar Sesión</Text>
               </TouchableOpacity>
             </View>
@@ -273,230 +285,231 @@ export default function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
-  scrollContent: {
-    // paddingBottom dinámico aplicado inline
-  },
-  profileHeader: {
-    alignItems: 'center',
-    paddingVertical: Spacing.xl,
-    paddingHorizontal: Spacing.lg,
-    backgroundColor: Colors.dark.background,
-  },
-  avatarContainer: {
-    position: 'relative',
-    marginBottom: Spacing.md,
-  },
-  avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: Colors.dark.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 4,
-    borderColor: Colors.dark.primary,
-    ...Shadows.lg,
-  },
-  editPhotoButton: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: Colors.dark.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 3,
-    borderColor: Colors.dark.background,
-    ...Shadows.md,
-  },
-  userName: {
-    fontSize: FontSizes.xxl,
-    fontWeight: '800',
-    color: Colors.dark.text,
-    marginBottom: Spacing.xs,
-    marginTop: Spacing.sm,
-  },
-  userEmail: {
-    fontSize: FontSizes.md,
-    color: Colors.dark.textSecondary,
-    marginBottom: Spacing.xs,
-  },
-  roleBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: BorderRadius.round,
-    marginTop: Spacing.xs,
-    marginBottom: Spacing.sm,
-  },
-  roleBadgeSuperAdmin: {
-    backgroundColor: '#9333EA', // Morado
-  },
-  roleBadgeAdmin: {
-    backgroundColor: Colors.dark.primary, // Verde
-  },
-  roleBadgeClient: {
-    backgroundColor: '#3B82F6', // Azul
-  },
-  roleText: {
-    fontSize: FontSizes.xs,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  editButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.round,
-    borderWidth: 1.5,
-    borderColor: Colors.dark.primary,
-    backgroundColor: 'rgba(0, 208, 132, 0.1)',
-    marginTop: Spacing.sm,
-  },
-  editButtonText: {
-    fontSize: FontSizes.sm,
-    fontWeight: '700',
-    color: Colors.dark.primary,
-    letterSpacing: 0.3,
-  },
-  loginButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xl,
-    borderRadius: BorderRadius.round,
-    backgroundColor: Colors.dark.primary,
-    marginTop: Spacing.sm,
-    ...Shadows.md,
-  },
-  loginButtonText: {
-    fontSize: FontSizes.md,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
-  },
-  optionsContainer: {
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.md,
-    backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 208, 132, 0.1)',
-    ...Shadows.sm,
-  },
-  optionItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  optionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-  },
-  iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.md,
-    backgroundColor: 'rgba(0, 208, 132, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  optionTitle: {
-    fontSize: FontSizes.md,
-    fontWeight: '600',
-    color: Colors.dark.text,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.xl,
-    marginBottom: Spacing.md,
-  },
-  logoutContainer: {
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.lg,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    paddingVertical: 16,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.xl,
-    backgroundColor: Colors.dark.error,
-    ...Shadows.md,
-    shadowColor: Colors.dark.error,
-    shadowOpacity: 0.3,
-    elevation: 4,
-  },
-  logoutButtonText: {
-    fontSize: FontSizes.lg, // Más grande
-    fontWeight: '800',
-    color: '#FFFFFF', // Texto blanco sobre rojo
-    letterSpacing: 0.5,
-  },
-  versionText: {
-    fontSize: FontSizes.sm,
-    color: Colors.dark.textMuted,
-    textAlign: 'center',
-    marginTop: Spacing.md,
-    marginBottom: Spacing.lg,
-  },
-  adminSection: {
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.lg,
-    marginBottom: Spacing.md,
-  },
-  adminButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.xl,
-    backgroundColor: Colors.dark.primary,
-    ...Shadows.lg,
-    shadowColor: Colors.dark.primary,
-    shadowOpacity: 0.3,
-    elevation: 6,
-  },
-  adminButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.md,
-    flex: 1,
-  },
-  adminButtonText: {
-    flex: 1,
-  },
-  adminButtonTitle: {
-    fontSize: FontSizes.md,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 2,
-  },
-  adminButtonSubtitle: {
-    fontSize: FontSizes.sm,
-    color: 'rgba(255, 255, 255, 0.8)',
-  },
-});
+const createStyles = (palette: typeof Colors.dark, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: palette.background,
+    },
+    scrollContent: {
+      // paddingBottom dinámico aplicado inline
+    },
+    profileHeader: {
+      alignItems: 'center',
+      paddingVertical: Spacing.xl,
+      paddingHorizontal: Spacing.lg,
+      backgroundColor: palette.background,
+    },
+    avatarContainer: {
+      position: 'relative',
+      marginBottom: Spacing.md,
+    },
+    avatar: {
+      width: 120,
+      height: 120,
+      borderRadius: 60,
+      backgroundColor: palette.surface,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 4,
+      borderColor: palette.primary,
+      ...Shadows.lg,
+    },
+    editPhotoButton: {
+      position: 'absolute',
+      bottom: 0,
+      right: 0,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: palette.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 3,
+      borderColor: palette.background,
+      ...Shadows.md,
+    },
+    userName: {
+      fontSize: FontSizes.xxl,
+      fontWeight: '800',
+      color: palette.text,
+      marginBottom: Spacing.xs,
+      marginTop: Spacing.sm,
+    },
+    userEmail: {
+      fontSize: FontSizes.md,
+      color: palette.textSecondary,
+      marginBottom: Spacing.xs,
+    },
+    roleBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: BorderRadius.round,
+      marginTop: Spacing.xs,
+      marginBottom: Spacing.sm,
+    },
+    roleBadgeSuperAdmin: {
+      backgroundColor: '#9333EA',
+    },
+    roleBadgeAdmin: {
+      backgroundColor: palette.primary,
+    },
+    roleBadgeClient: {
+      backgroundColor: '#3B82F6',
+    },
+    roleText: {
+      fontSize: FontSizes.xs,
+      fontWeight: '700',
+      color: '#FFFFFF',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    editButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.xs,
+      paddingVertical: Spacing.sm,
+      paddingHorizontal: Spacing.lg,
+      borderRadius: BorderRadius.round,
+      borderWidth: 1.5,
+      borderColor: palette.primary,
+      backgroundColor: 'rgba(0, 208, 132, 0.12)',
+      marginTop: Spacing.sm,
+    },
+    editButtonText: {
+      fontSize: FontSizes.sm,
+      fontWeight: '700',
+      color: palette.primary,
+      letterSpacing: 0.3,
+    },
+    loginButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.xs,
+      paddingVertical: Spacing.md,
+      paddingHorizontal: Spacing.xl,
+      borderRadius: BorderRadius.round,
+      backgroundColor: palette.primary,
+      marginTop: Spacing.sm,
+      ...Shadows.md,
+    },
+    loginButtonText: {
+      fontSize: FontSizes.md,
+      fontWeight: '700',
+      color: '#FFFFFF',
+      letterSpacing: 0.3,
+    },
+    optionsContainer: {
+      marginHorizontal: Spacing.lg,
+      marginTop: Spacing.md,
+      backgroundColor: palette.surface,
+      borderRadius: BorderRadius.xl,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(0, 208, 132, 0.15)' : 'rgba(0, 128, 90, 0.2)',
+      ...Shadows.sm,
+    },
+    optionItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: Spacing.md,
+      paddingHorizontal: Spacing.lg,
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(10, 10, 10, 0.06)',
+    },
+    optionLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.md,
+    },
+    iconContainer: {
+      width: 40,
+      height: 40,
+      borderRadius: BorderRadius.md,
+      backgroundColor: isDark ? 'rgba(0, 208, 132, 0.1)' : 'rgba(0, 208, 132, 0.15)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    optionTitle: {
+      fontSize: FontSizes.md,
+      fontWeight: '600',
+      color: palette.text,
+    },
+    divider: {
+      height: 1,
+      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(10, 10, 10, 0.08)',
+      marginHorizontal: Spacing.lg,
+      marginTop: Spacing.xl,
+      marginBottom: Spacing.md,
+    },
+    logoutContainer: {
+      marginHorizontal: Spacing.lg,
+      marginBottom: Spacing.lg,
+    },
+    logoutButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: Spacing.sm,
+      paddingVertical: 16,
+      paddingHorizontal: Spacing.lg,
+      borderRadius: BorderRadius.xl,
+      backgroundColor: palette.error,
+      ...Shadows.md,
+      shadowColor: palette.error,
+      shadowOpacity: 0.25,
+      elevation: 4,
+    },
+    logoutButtonText: {
+      fontSize: FontSizes.lg,
+      fontWeight: '800',
+      color: '#FFFFFF',
+      letterSpacing: 0.5,
+    },
+    versionText: {
+      fontSize: FontSizes.sm,
+      color: palette.textMuted,
+      textAlign: 'center',
+      marginTop: Spacing.md,
+      marginBottom: Spacing.lg,
+    },
+    adminSection: {
+      marginHorizontal: Spacing.lg,
+      marginTop: Spacing.lg,
+      marginBottom: Spacing.md,
+    },
+    adminButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      padding: Spacing.lg,
+      borderRadius: BorderRadius.xl,
+      backgroundColor: palette.primary,
+      ...Shadows.lg,
+      shadowColor: palette.primary,
+      shadowOpacity: 0.3,
+      elevation: 6,
+    },
+    adminButtonContent: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: Spacing.md,
+      flex: 1,
+    },
+    adminButtonText: {
+      flex: 1,
+    },
+    adminButtonTitle: {
+      fontSize: FontSizes.md,
+      fontWeight: '700',
+      color: '#FFFFFF',
+      marginBottom: 2,
+    },
+    adminButtonSubtitle: {
+      fontSize: FontSizes.sm,
+      color: 'rgba(255, 255, 255, 0.8)',
+    },
+  });

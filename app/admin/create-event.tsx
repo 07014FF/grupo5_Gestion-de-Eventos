@@ -1,14 +1,15 @@
 import FormContainer from '@/components/FormContainer';
+import { Button, ControlledInput } from '@/components/ui';
+import { BorderRadius, Colors, FontSizes, Spacing } from '@/constants/theme';
+import { useAuth } from '@/context/AuthContext';
+import { supabase } from '@/lib/supabase';
+import { Ionicons } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter } from 'expo-router';
 import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
-import { Alert, Platform, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { z } from 'zod';
-import { Button, ControlledInput } from '@/components/ui';
-import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
-import { Colors, FontSizes, Spacing } from '@/constants/theme';
 
 // Constants
 const DEFAULT_CATEGORY = 'General';
@@ -140,120 +141,221 @@ export default function CreateEvent() {
   return (
     <FormContainer contentContainerStyle={styles.scrollContent}>
       <View style={styles.header}>
+        <View style={styles.badge}>
+          <Ionicons name="flash-outline" size={16} color={Colors.dark.textLight} />
+          <Text style={styles.badgeText}>Panel de administración</Text>
+        </View>
         <Text style={styles.title}>Crear Nuevo Evento</Text>
         <Text style={styles.subtitle}>
-          Completa la información del evento
+          Completa la información del evento y publícalo cuando estés listo.
         </Text>
       </View>
 
-      <View style={styles.form}>
-        <ControlledInput
-          control={control}
-          name="title"
-          label="Título del Evento *"
-          placeholder="Ej: Festival de Jazz 2024"
-          returnKeyType="next"
-          blurOnSubmit={false}
-        />
-
-        <ControlledInput
-          control={control}
-          name="subtitle"
-          label="Subtítulo"
-          placeholder="Ej: Una noche de música en vivo"
-          returnKeyType="next"
-          blurOnSubmit={false}
-        />
-
-        <ControlledInput
-          control={control}
-          name="description"
-          label="Descripción"
-          placeholder="Describe el evento..."
-          multiline
-          numberOfLines={4}
-          returnKeyType="next"
-          blurOnSubmit={false}
-        />
-
-        <ControlledInput
-          control={control}
-          name="date"
-          label="Fecha *"
-          placeholder="YYYY-MM-DD (Ej: 2024-12-31)"
-          returnKeyType="next"
-          blurOnSubmit={false}
-        />
-
-        <ControlledInput
-          control={control}
-          name="time"
-          label="Hora *"
-          placeholder="HH:MM (Ej: 19:00)"
-          returnKeyType="next"
-          blurOnSubmit={false}
-        />
-
-        <ControlledInput
-          control={control}
-          name="location"
-          label="Ciudad *"
-          placeholder="Ej: Lima"
-          returnKeyType="next"
-          blurOnSubmit={false}
-        />
-
-        <ControlledInput
-          control={control}
-          name="venue"
-          label="Lugar/Venue"
-          placeholder="Ej: Teatro Colón"
-          returnKeyType="next"
-          blurOnSubmit={false}
-        />
-
-        <ControlledInput
-          control={control}
-          name="category"
-          label="Categoría"
-          placeholder="Ej: Música, Teatro, Deportes"
-          returnKeyType="next"
-          blurOnSubmit={false}
-        />
-
-        <ControlledInput
-          control={control}
-          name="price"
-          label="Precio (S/) *"
-          placeholder="Ej: 50.00"
-          keyboardType="decimal-pad"
-          returnKeyType="next"
-          blurOnSubmit={false}
-        />
-
-        <ControlledInput
-          control={control}
-          name="totalTickets"
-          label="Total de Entradas *"
-          placeholder="Ej: 500"
-          keyboardType="numeric"
-          returnKeyType="next"
-          blurOnSubmit={false}
-        />
-
-        <ControlledInput
-          control={control}
-          name="imageUrl"
-          label="URL de Imagen"
-          placeholder="https://ejemplo.com/imagen.jpg"
-          autoCapitalize="none"
-          returnKeyType="done"
-          onSubmitEditing={handleSubmit(onSubmit)}
-        />
-
-        <Text style={styles.helperText}>
-          * Campos requeridos
+      <View style={styles.helperStrip}>
+        <Ionicons name="information-circle-outline" size={16} color={Colors.dark.primary} />
+        <Text style={styles.helperStripText}>
+          Los cambios se guardan como borrador hasta confirmar la creación.
         </Text>
+      </View>
+
+      <View style={styles.progressSteps}>
+        {[
+          { key: 'info', label: 'Información', icon: 'document-text-outline' },
+          { key: 'agenda', label: 'Agenda', icon: 'calendar-outline' },
+          { key: 'tickets', label: 'Tickets', icon: 'pricetags-outline' },
+        ].map((step, index) => (
+          <View
+            key={step.key}
+            style={[
+              styles.stepItem,
+              index === 0 && styles.stepItemActive,
+            ]}
+          >
+            <View style={[
+              styles.stepIcon,
+              index === 0 && styles.stepIconActive,
+            ]}>
+              <Ionicons
+                name={step.icon as any}
+                size={18}
+                color={index === 0 ? Colors.dark.background : Colors.dark.textSecondary}
+              />
+            </View>
+            <Text
+              style={[
+                styles.stepLabel,
+                index === 0 && styles.stepLabelActive,
+              ]}
+            >
+              {step.label}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.formSections}>
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Información general</Text>
+            <Text style={styles.sectionDescription}>
+              Define título, descripción y categoría para ayudar a destacarlo.
+            </Text>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <ControlledInput
+              control={control}
+              name="title"
+              label="Título del Evento *"
+              placeholder="Ej: Festival de Jazz 2024"
+              returnKeyType="next"
+              blurOnSubmit={false}
+            />
+
+            <ControlledInput
+              control={control}
+              name="subtitle"
+              label="Subtítulo"
+              placeholder="Ej: Una noche de música en vivo"
+              returnKeyType="next"
+              blurOnSubmit={false}
+            />
+
+            <ControlledInput
+              control={control}
+              name="description"
+              label="Descripción"
+              placeholder="Describe el evento..."
+              multiline
+              numberOfLines={4}
+              returnKeyType="next"
+              blurOnSubmit={false}
+            />
+
+            <ControlledInput
+              control={control}
+              name="category"
+              label="Categoría"
+              placeholder="Ej: Música, Teatro, Deportes"
+              returnKeyType="next"
+              blurOnSubmit={false}
+            />
+          </View>
+        </View>
+
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Agenda y ubicación</Text>
+            <Text style={styles.sectionDescription}>
+              Indica fecha, hora y lugar para sincronizarlo con la app.
+            </Text>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <View style={styles.inlineGroup}>
+              <View style={styles.inlineField}>
+                <ControlledInput
+                  control={control}
+                  name="date"
+                  label="Fecha *"
+                  placeholder="YYYY-MM-DD (Ej: 2024-12-31)"
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                />
+              </View>
+
+              <View style={styles.inlineField}>
+                <ControlledInput
+                  control={control}
+                  name="time"
+                  label="Hora *"
+                  placeholder="HH:MM (Ej: 19:00)"
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                />
+              </View>
+            </View>
+
+            <ControlledInput
+              control={control}
+              name="location"
+              label="Ciudad *"
+              placeholder="Ej: Lima"
+              returnKeyType="next"
+              blurOnSubmit={false}
+            />
+
+            <ControlledInput
+              control={control}
+              name="venue"
+              label="Lugar/Venue"
+              placeholder="Ej: Teatro Colón"
+              returnKeyType="next"
+              blurOnSubmit={false}
+            />
+          </View>
+        </View>
+
+        <View style={styles.sectionCard}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Tickets y assets</Text>
+            <Text style={styles.sectionDescription}>
+              Configura precios, cupos y material gráfico antes de publicar.
+            </Text>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <View style={styles.inlineGroup}>
+              <View style={styles.inlineField}>
+                <ControlledInput
+                  control={control}
+                  name="price"
+                  label="Precio (S/) *"
+                  placeholder="Ej: 50.00"
+                  keyboardType="decimal-pad"
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                />
+              </View>
+
+              <View style={styles.inlineField}>
+                <ControlledInput
+                  control={control}
+                  name="totalTickets"
+                  label="Total de Entradas *"
+                  placeholder="Ej: 500"
+                  keyboardType="numeric"
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                />
+              </View>
+            </View>
+
+            <ControlledInput
+              control={control}
+              name="imageUrl"
+              label="URL de Imagen"
+              placeholder="https://ejemplo.com/imagen.jpg"
+              autoCapitalize="none"
+              returnKeyType="done"
+              onSubmitEditing={handleSubmit(onSubmit)}
+            />
+
+            <Text style={styles.helperText}>
+              * Campos requeridos
+            </Text>
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.helperCard}>
+        <Ionicons name="sparkles-outline" size={20} color={Colors.dark.primary} />
+        <View style={styles.helperCardContent}>
+          <Text style={styles.helperCardTitle}>Consejo rápido</Text>
+          <Text style={styles.helperCardText}>
+            Define un cupo realista para evitar sobreventa y agrega una imagen en alta calidad.
+          </Text>
+        </View>
       </View>
 
       <View style={styles.actions}>
@@ -285,7 +387,8 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: Spacing.lg,
-    paddingBottom: Spacing.xs,
+    paddingBottom: Spacing.sm,
+    gap: Spacing.sm,
   },
   title: {
     fontSize: FontSizes.xl,
@@ -298,9 +401,107 @@ const styles = StyleSheet.create({
     color: Colors.dark.textSecondary,
     lineHeight: 20,
   },
-  form: {
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
+    alignSelf: 'flex-start',
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: Spacing.lg,
+    backgroundColor: 'rgba(0, 208, 132, 0.15)',
+  },
+  badgeText: {
+    fontSize: FontSizes.xs,
+    color: Colors.dark.text,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    fontWeight: '600',
+  },
+  helperStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: Spacing.sm,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: Colors.dark.surface,
+    borderWidth: 1,
+    borderColor: Colors.dark.border,
     marginBottom: Spacing.lg,
+  },
+  helperStripText: {
+    flex: 1,
+    fontSize: FontSizes.sm,
+    color: Colors.dark.textSecondary,
+  },
+  progressSteps: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
+  stepItem: {
+    flex: 1,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: Colors.dark.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  stepItemActive: {
+    borderColor: Colors.dark.primary,
+    backgroundColor: 'rgba(0, 208, 132, 0.15)',
+  },
+  stepIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: Colors.dark.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepIconActive: {
+    backgroundColor: Colors.dark.primary,
+    borderColor: Colors.dark.primary,
+  },
+  stepLabel: {
+    fontSize: FontSizes.sm,
+    color: Colors.dark.textSecondary,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  stepLabelActive: {
+    color: Colors.dark.text,
+  },
+  formSections: {
+    gap: Spacing.lg,
+    marginBottom: Spacing.lg,
+  },
+  sectionCard: {
+    backgroundColor: Colors.dark.surface,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    borderWidth: 1,
+    borderColor: Colors.dark.border,
+    gap: Spacing.md,
+  },
+  sectionHeader: {
+    gap: Spacing.xs,
+  },
+  sectionTitle: {
+    fontSize: FontSizes.lg,
+    fontWeight: '700',
+    color: Colors.dark.text,
+  },
+  sectionDescription: {
+    fontSize: FontSizes.sm,
+    color: Colors.dark.textSecondary,
+    lineHeight: 20,
+  },
+  fieldGroup: {
+    gap: Spacing.sm,
   },
   helperText: {
     fontSize: FontSizes.xs,
@@ -308,10 +509,45 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: Spacing.xs,
   },
+  inlineGroup: {
+    flexDirection: 'row',
+    gap: Spacing.md,
+    flexWrap: 'wrap',
+  },
+  inlineField: {
+    flex: 1,
+    minWidth: '45%',
+  },
+  helperCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: Spacing.md,
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    backgroundColor: Colors.dark.surface,
+    borderWidth: 1,
+    borderColor: Colors.dark.border,
+    marginBottom: Spacing.lg,
+  },
+  helperCardContent: {
+    flex: 1,
+    gap: Spacing.xs,
+  },
+  helperCardTitle: {
+    fontSize: FontSizes.md,
+    fontWeight: '700',
+    color: Colors.dark.text,
+  },
+  helperCardText: {
+    fontSize: FontSizes.sm,
+    color: Colors.dark.textSecondary,
+    lineHeight: 20,
+  },
   actions: {
     flexDirection: 'row',
     gap: Spacing.md,
     marginTop: Spacing.md,
     paddingTop: Spacing.sm,
+    flexWrap: 'wrap',
   },
 });

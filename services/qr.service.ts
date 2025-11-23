@@ -1,60 +1,29 @@
 /**
  * QR Code Service
- * Handles QR code generation, validation, and verification
- * Implements security measures to prevent forgery and duplication
+ * Handles QR code generation and parsing
+ * Validation is done server-side via RPC for security
  */
 
 import { QRCodePayload, ValidationResult, TicketStatus } from '@/types/ticket.types';
 import { AppError, ErrorCode, Result, Ok, Err } from '@/utils/errors';
 
-/**
- * Simple hash function for creating signatures
- * In production, use a proper cryptographic library like crypto-js
- */
-function simpleHash(data: string): string {
-  let hash = 0;
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i);
-    hash = (hash << 5) - hash + char;
-    hash = hash & hash; // Convert to 32-bit integer
-  }
-  return Math.abs(hash).toString(36);
-}
-
-/**
- * Generate a secure signature for QR code data
- * This prevents forgery by signing the payload with a secret
- */
-function generateSignature(payload: Omit<QRCodePayload, 'signature'>): string {
-  // In production, use a server-side secret and proper HMAC
-  const SECRET_KEY = 'your-secret-key-change-in-production'; // TODO: Move to secure environment variable
-  const dataString = `${payload.ticketId}-${payload.eventId}-${payload.userId}-${payload.purchaseDate}-${payload.timestamp}-${SECRET_KEY}`;
-  return simpleHash(dataString);
-}
-
-/**
- * Verify the signature of QR code data
- */
-function verifySignature(payload: QRCodePayload): boolean {
-  const { signature, ...dataWithoutSignature } = payload;
-  const expectedSignature = generateSignature(dataWithoutSignature);
-  return signature === expectedSignature;
-}
-
 export class QRService {
   /**
-   * Generate a unique, secure QR code data string for a ticket
-   * @param ticketId - Unique ticket identifier
+   * Generate a QR code data string for a ticket
+   * Server-side validation ensures security
+   * @param ticketId - Unique ticket identifier (ticket_code)
    * @param eventId - Event identifier
    * @param userId - User identifier
    * @param purchaseDate - Purchase date in ISO format
+   * @param metadata - Optional metadata (e.g., quantity)
    * @returns Result with QR data string or error
    */
   static generateQRData(
     ticketId: string,
     eventId: string,
     userId: string,
-    purchaseDate: string
+    purchaseDate: string,
+    metadata?: Record<string, any>
   ): Result<string> {
     try {
       // Validate inputs
@@ -66,26 +35,17 @@ export class QRService {
         );
       }
 
-      // Create payload
-      const payload: Omit<QRCodePayload, 'signature'> = {
-        ticketId,
+      // Create simple payload - validation is done server-side
+      const payload = {
+        ticketId, // This is the ticket_code
         eventId,
         userId,
         purchaseDate,
-        timestamp: Date.now(),
-      };
-
-      // Generate signature
-      const signature = generateSignature(payload);
-
-      // Create full payload
-      const fullPayload: QRCodePayload = {
-        ...payload,
-        signature,
+        ...(metadata && { metadata }),
       };
 
       // Convert to JSON string (this will be encoded in the QR)
-      const qrData = JSON.stringify(fullPayload);
+      const qrData = JSON.stringify(payload);
 
       return Ok(qrData);
     } catch (error) {
@@ -105,7 +65,8 @@ export class QRService {
   }
 
   /**
-   * Parse and validate QR code data
+   * Parse QR code data
+   * Note: Validation is done server-side for security
    * @param qrData - Raw QR data string
    * @returns Result with parsed payload or error
    */
@@ -114,38 +75,17 @@ export class QRService {
       // Parse JSON
       const payload = JSON.parse(qrData) as QRCodePayload;
 
-      // Validate structure
+      // Validate structure (basic check)
       if (
         !payload.ticketId ||
         !payload.eventId ||
         !payload.userId ||
-        !payload.purchaseDate ||
-        !payload.signature ||
-        !payload.timestamp
+        !payload.purchaseDate
       ) {
         throw new AppError(
           ErrorCode.INVALID_QR_DATA,
           'Invalid QR data structure',
           'El código QR no contiene datos válidos.'
-        );
-      }
-
-      // Verify signature
-      if (!verifySignature(payload)) {
-        throw new AppError(
-          ErrorCode.TICKET_INVALID,
-          'Invalid QR signature - possible forgery',
-          'Este código QR no es válido o ha sido alterado.'
-        );
-      }
-
-      // Check if QR is too old (e.g., generated more than 1 year ago)
-      const oneYearAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
-      if (payload.timestamp < oneYearAgo) {
-        throw new AppError(
-          ErrorCode.TICKET_EXPIRED,
-          'QR code is too old',
-          'Este código QR ha expirado.'
         );
       }
 

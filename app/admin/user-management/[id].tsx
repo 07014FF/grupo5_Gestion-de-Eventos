@@ -1,12 +1,11 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
-import { User, getUserById } from '@/services/user.service';
+import { User, getUserById, updateUserRole, UserRole } from '@/services/user.service';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, View } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import Button from '@/components/ui/Button';
-import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 
 export default function UserDetailScreen() {
@@ -14,7 +13,7 @@ export default function UserDetailScreen() {
   const { user: currentUser } = useAuth();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [selectedRole, setSelectedRole] = useState<UserRole>('client');
 
   useEffect(() => {
     if (!id) return;
@@ -33,38 +32,41 @@ export default function UserDetailScreen() {
     fetchUser();
   }, [id]);
 
-  const handleRoleChange = (role: string | null) => {
+  const handleRoleChange = (role: UserRole) => {
     setSelectedRole(role);
   };
 
   const handleSaveChanges = async () => {
     if (!id || !selectedRole) return;
+    if (!currentUser?.role || !currentUser.id) {
+      Alert.alert('Acción no permitida', 'Tu sesión no está disponible. Intenta nuevamente.');
+      return;
+    }
 
     // Prevent admin from changing super_admin role
-    if (user?.role === 'super_admin' && currentUser?.role !== 'super_admin') {
-        alert("You cannot change the role of a super admin.");
-        return;
+    if (user?.role === 'super_admin' && currentUser.role !== 'super_admin') {
+      Alert.alert('Acción no permitida', 'No puedes modificar a otro Super Admin.');
+      return;
     }
 
     // Prevent admin from assigning super_admin role
-    if (selectedRole === 'super_admin' && currentUser?.role !== 'super_admin') {
-        alert("You cannot assign the super admin role.");
-        return;
+    if (selectedRole === 'super_admin' && currentUser.role !== 'super_admin') {
+      Alert.alert('Acción no permitida', 'No puedes asignar el rol de Super Admin.');
+      return;
     }
 
-    const { error } = await supabase
-      .from('users')
-      .update({ role: selectedRole })
-      .eq('id', id);
-
-    if (error) {
-      alert('Error updating user role.');
+    try {
+      const updatedUser = await updateUserRole(id, selectedRole, {
+        performedBy: currentUser.id,
+        previousRole: user?.role ?? null,
+        context: 'detail_screen',
+        actorEmail: currentUser.email,
+      });
+      setUser(updatedUser);
+      Alert.alert('Rol actualizado', 'El rol del usuario se actualizó correctamente.');
+    } catch (error) {
       console.error(error);
-    } else {
-      alert('User role updated successfully.');
-      // Optionally, refresh user data
-      const fetchedUser = await getUserById(id);
-      setUser(fetchedUser);
+      Alert.alert('Error', 'No se pudo actualizar el rol.');
     }
   };
 
@@ -84,7 +86,7 @@ export default function UserDetailScreen() {
     );
   }
 
-  const canEditRole = (targetRole: string | null) => {
+  const canEditRole = (targetRole: UserRole | null) => {
     if (currentUser?.role === 'super_admin') {
       return true;
     }
@@ -96,9 +98,6 @@ export default function UserDetailScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedText style={styles.label}>Name:</ThemedText>
-      <ThemedText style={styles.value}>{user.fullName}</ThemedText>
-
       <ThemedText style={styles.label}>Email:</ThemedText>
       <ThemedText style={styles.value}>{user.email}</ThemedText>
 
@@ -107,7 +106,7 @@ export default function UserDetailScreen() {
         <View style={styles.pickerContainer}>
             <Picker
             selectedValue={selectedRole}
-            onValueChange={(itemValue) => handleRoleChange(itemValue)}
+            onValueChange={(itemValue) => handleRoleChange(itemValue as UserRole)}
             >
             {currentUser?.role === 'super_admin' && <Picker.Item label="Super Admin" value="super_admin" />}
             <Picker.Item label="Admin" value="admin" />

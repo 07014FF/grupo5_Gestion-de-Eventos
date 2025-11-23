@@ -39,6 +39,7 @@ export enum ErrorCode {
   // Generic errors
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
   SERVER_ERROR = 'SERVER_ERROR',
+  DB_ERROR = 'DB_ERROR',
 }
 
 export class AppError extends Error {
@@ -89,6 +90,7 @@ export class AppError extends Error {
       [ErrorCode.CAMERA_NOT_AVAILABLE]: 'La cámara no está disponible en este dispositivo.',
       [ErrorCode.UNKNOWN_ERROR]: 'Ocurrió un error inesperado. Intenta nuevamente.',
       [ErrorCode.SERVER_ERROR]: 'Error del servidor. Intenta nuevamente más tarde.',
+      [ErrorCode.DB_ERROR]: 'Error de base de datos. Por favor, intenta nuevamente.',
     };
 
     return messages[this.code] || messages[ErrorCode.UNKNOWN_ERROR];
@@ -99,6 +101,34 @@ export class AppError extends Error {
  * Error handler utility for consistent error processing
  */
 export class ErrorHandler {
+  /**
+   * Errores operativos del usuario (esperados) - Se loggean como WARNING
+   * El sistema funcionó correctamente al bloquear la acción inválida
+   */
+  private static readonly USER_OPERATION_ERRORS = new Set([
+    ErrorCode.VALIDATION_ERROR,
+    ErrorCode.INSUFFICIENT_FUNDS,
+    ErrorCode.TICKET_ALREADY_USED,
+    ErrorCode.UNAUTHORIZED,
+    ErrorCode.PAYMENT_CANCELLED,
+    ErrorCode.TICKET_EXPIRED,
+    ErrorCode.MISSING_REQUIRED_FIELD,
+    ErrorCode.CAMERA_PERMISSION_DENIED,
+  ]);
+
+  /**
+   * Errores críticos del sistema - Se loggean como ERROR
+   * Algo falló que no debería haber fallado
+   */
+  private static readonly SYSTEM_CRITICAL_ERRORS = new Set([
+    ErrorCode.UNKNOWN_ERROR,
+    ErrorCode.SERVER_ERROR,
+    ErrorCode.DB_ERROR,
+    ErrorCode.NETWORK_ERROR,
+    ErrorCode.QR_GENERATION_FAILED,
+    ErrorCode.PAYMENT_FAILED,
+  ]);
+
   /**
    * Handle an error and return a user-friendly message
    */
@@ -126,27 +156,46 @@ export class ErrorHandler {
   }
 
   /**
-   * Log error for debugging (can be extended to send to analytics)
+   * Log error for debugging with intelligent severity levels
+   * - User operation errors (expected): console.warn (amarillo/naranja)
+   * - System critical errors (unexpected): console.error (rojo)
    */
   static log(error: unknown, context?: string): void {
     const timestamp = new Date().toISOString();
     const contextStr = context ? `[${context}]` : '';
 
     if (error instanceof AppError) {
-      console.error(`${timestamp} ${contextStr} AppError:`, {
+      const errorData = {
         code: error.code,
         message: error.message,
         userMessage: error.userMessage,
         details: error.details,
-      });
+      };
+
+      // Determinar el nivel de severidad
+      const isUserOperation = this.USER_OPERATION_ERRORS.has(error.code);
+      const isCritical = this.SYSTEM_CRITICAL_ERRORS.has(error.code);
+
+      if (isUserOperation) {
+        // Operación de usuario esperada (el sistema funcionó bien al bloquearla)
+        console.warn(`⚠️ ${timestamp} ${contextStr} User Operation:`, errorData);
+      } else if (isCritical) {
+        // Error crítico del sistema (algo falló inesperadamente)
+        console.error(`❌ ${timestamp} ${contextStr} System Error:`, errorData);
+      } else {
+        // Error de nivel medio (ni crítico ni totalmente esperado)
+        console.warn(`⚠️ ${timestamp} ${contextStr} AppError:`, errorData);
+      }
     } else if (error instanceof Error) {
-      console.error(`${timestamp} ${contextStr} Error:`, {
+      // Errores no manejados siempre son críticos
+      console.error(`❌ ${timestamp} ${contextStr} Unhandled Error:`, {
         name: error.name,
         message: error.message,
         stack: error.stack,
       });
     } else {
-      console.error(`${timestamp} ${contextStr} Unknown error:`, error);
+      // Errores desconocidos siempre son críticos
+      console.error(`❌ ${timestamp} ${contextStr} Unknown Error:`, error);
     }
   }
 }

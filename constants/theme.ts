@@ -51,6 +51,10 @@ export const Colors = {
     textLight: white,
     textMuted: gray400,
 
+    // Colores básicos
+    white: white,
+    black: black,
+
     // Fondos - Limpios y espaciosos
     background: white,
     backgroundSecondary: gray50,
@@ -112,6 +116,10 @@ export const Colors = {
     textSecondary: '#E4E4E7',    // Gris muy claro (mejor contraste)
     textLight: '#FFFFFF',
     textMuted: '#A1A1AA',        // Gris medio (mejor que antes)
+
+    // Colores básicos
+    white: white,
+    black: black,
 
     // Fondos - Mejor separación visual estilo Notion/Stripe
     background: '#0A0A0A',       // Negro profundo
@@ -208,12 +216,14 @@ export const Spacing = {
 
 // Radios de bordes
 export const BorderRadius = {
+  xs: 2,
   sm: 4,
   md: 8,
   lg: 12,
   xl: 16,
   xxl: 24,
   round: 50,
+  full: 9999, // Para bordes completamente circulares
 };
 
 // Sombras - Más suaves y elegantes (Green Theme)
@@ -369,3 +379,6 @@ export const AdminFontSizes = {
   cardTitle: 18,
   sectionTitle: 22,
 };
+
+// Export default colors (para compatibilidad con componentes de admin)
+export const colors = Colors.light;

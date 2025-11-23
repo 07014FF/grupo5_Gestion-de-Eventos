@@ -8,7 +8,24 @@
   "deno.enablePaths": [
     "./supabase/functions"
   ],
+  "deno.lint": true,
+  "deno.unstable": false,
   "[typescript]": {
     "editor.defaultFormatter": "denoland.vscode-deno"
+  },
+  "eslint.workingDirectories": [
+    {
+      "pattern": "./supabase/functions/*",
+      "!cwd": true
+    }
+  ],
+  "eslint.enable": true,
+  "files.exclude": {
+    "**/.git": true,
+    "**/.DS_Store": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/.expo": true
   }
 }

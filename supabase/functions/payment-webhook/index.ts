@@ -1,9 +1,13 @@
+/// <reference path="../../../types/supabase-edge.d.ts" />
+
 /**
  * Supabase Edge Function: Payment Webhook Handler
  * Receives payment confirmations from Wompi and updates purchase status
  */
 
+// @deno-types="https://deno.land/std@0.177.0/http/server.ts"
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts';
+// @deno-types="https://esm.sh/@supabase/supabase-js@2"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const corsHeaders = {
@@ -35,7 +39,7 @@ interface WompiWebhookEvent {
   };
 }
 
-serve(async (req) => {
+serve(async (req: Request) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -92,7 +96,7 @@ serve(async (req) => {
 
       // Find purchase by payment intent ID (stored in payment_transaction_id or search by metadata)
       // First, try to find by transaction_id
-      let { data: purchase, error: findError } = await supabase
+      let { data: purchase } = await supabase
         .from('purchases')
         .select('*')
         .eq('payment_transaction_id', transaction.id)
@@ -185,8 +189,9 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('❌ Error processing webhook:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
-      JSON.stringify({ error: 'Internal server error', details: error.message }),
+      JSON.stringify({ error: 'Internal server error', details: errorMessage }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

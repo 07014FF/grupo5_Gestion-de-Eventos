@@ -1,6 +1,6 @@
-// FormContainer.tsx - VERSIÓN SIMPLE Y FUNCIONAL
+// FormContainer.tsx - VERSIÓN OPTIMIZADA SIN LOOPS
 
-import React from 'react';
+import React, { memo } from 'react';
 import {
   KeyboardAvoidingView,
   ScrollView,
@@ -17,12 +17,13 @@ interface FormContainerProps {
   safeAreaEdges?: Edge[];
 }
 
-const FormContainer: React.FC<FormContainerProps> = ({
+const FormContainerComponent: React.FC<FormContainerProps> = ({
   children,
   contentContainerStyle,
   backgroundColor = '#0F172A',
   safeAreaEdges = ['top', 'left', 'right'],
 }) => {
+
   return (
     <SafeAreaView
       style={[styles.safeArea, { backgroundColor }]}
@@ -31,17 +32,16 @@ const FormContainer: React.FC<FormContainerProps> = ({
       <KeyboardAvoidingView
         style={styles.keyboardView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0} // Ajuste para iOS
       >
         <ScrollView
           style={styles.scrollView}
-          contentContainerStyle={[styles.contentContainer, contentContainerStyle]}
-          keyboardShouldPersistTaps="always"
-          keyboardDismissMode="on-drag"
+          contentContainerStyle={[
+            styles.contentContainer,
+            contentContainerStyle,
+          ]}
+          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          removeClippedSubviews={false}
-          nestedScrollEnabled={false}
-          bounces={false}
         >
           {children}
         </ScrollView>
@@ -64,5 +64,8 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 });
+
+// React.memo previene re-renders innecesarios
+const FormContainer = memo(FormContainerComponent);
 
 export default FormContainer;
